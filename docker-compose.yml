@@ -32,3 +32,16 @@ services:
     environment:
       - MQTT_BROKER=mosquitto
       - ROOM_ID=room1
+
+  badge_connector:
+    build:
+      context: .
+      dockerfile: services/badge_connector/Dockerfile
+    ports:
+      - "8082:8082"
+    depends_on:
+      - mosquitto
+    environment:
+      - MQTT_BROKER=mosquitto
+      - ROOM_ID=room1
+      - BADGE_ID=b1
