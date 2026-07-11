@@ -1,0 +1,6 @@
+# Global constants
+DEFAULT_BROKER = "localhost"
+DEFAULT_PORT = 1883
+QOS_AT_MOST_ONCE = 0
+QOS_AT_LEAST_ONCE = 1
+QOS_EXACTLY_ONCE = 2
