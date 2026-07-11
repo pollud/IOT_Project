@@ -9,3 +9,4 @@ from .config import load_config
 from .constants import *
 from .fsm_schema import RoomStrategySchema, validate_strategy
 from .events import *
+from .mqtt import MQTTClient
