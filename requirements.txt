@@ -1,2 +1,4 @@
 jsonschema==4.21.1
 paho-mqtt==1.6.1
+CherryPy==18.9.0
+requests==2.31.0
