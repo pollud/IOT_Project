@@ -79,3 +79,14 @@ services:
     environment:
       - MQTT_BROKER=mosquitto
       - ROOM_ID=room1
+
+  timeseries_adapter:
+    build:
+      context: .
+      dockerfile: services/timeseries_adapter/Dockerfile
+    depends_on:
+      - mosquitto
+    volumes:
+      - ./data:/app/data
+    environment:
+      - MQTT_BROKER=mosquitto
