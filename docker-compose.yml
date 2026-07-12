@@ -99,3 +99,14 @@ services:
       - "8084:8084"
     volumes:
       - ./data:/app/data
+
+  thingspeak_adapter:
+    build:
+      context: .
+      dockerfile: services/thingspeak_adapter/Dockerfile
+    ports:
+      - "8085:8085"
+    depends_on:
+      - mosquitto
+    environment:
+      - MQTT_BROKER=mosquitto
