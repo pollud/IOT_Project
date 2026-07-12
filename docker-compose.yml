@@ -90,3 +90,12 @@ services:
       - ./data:/app/data
     environment:
       - MQTT_BROKER=mosquitto
+
+  analytics:
+    build:
+      context: .
+      dockerfile: services/analytics/Dockerfile
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./data:/app/data
