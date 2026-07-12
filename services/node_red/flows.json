@@ -1,0 +1,124 @@
+[
+    {
+        "id": "f1",
+        "type": "tab",
+        "label": "Escape Room Dashboard"
+    },
+    {
+        "id": "mqtt_broker",
+        "type": "mqtt-broker",
+        "broker": "mosquitto",
+        "port": "1883",
+        "clientid": "nodered"
+    },
+    {
+        "id": "ui_group1",
+        "type": "ui_group",
+        "name": "Room 1",
+        "tab": "ui_tab1",
+        "disp": true,
+        "width": "6"
+    },
+    {
+        "id": "ui_tab1",
+        "type": "ui_tab",
+        "name": "Dashboard",
+        "icon": "dashboard"
+    },
+    {
+        "id": "mqtt_in_env",
+        "type": "mqtt in",
+        "z": "f1",
+        "name": "Environment",
+        "topic": "room/+/environment",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "wires": [["ui_temp"]]
+    },
+    {
+        "id": "ui_temp",
+        "type": "ui_text",
+        "z": "f1",
+        "group": "ui_group1",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "name": "Temperature",
+        "label": "Temperature",
+        "format": "{{msg.payload.temperature}}",
+        "layout": "row-spread",
+        "wires": []
+    },
+    {
+        "id": "ui_btn_open",
+        "type": "ui_button",
+        "z": "f1",
+        "name": "Open Door",
+        "group": "ui_group1",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "Open Door",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "icon": "",
+        "payload": "{\"room_id\":\"room1\",\"command\":\"unlockDoor\"}",
+        "payloadType": "json",
+        "topic": "command/room",
+        "wires": [["mqtt_out_cmd"]]
+    },
+    {
+        "id": "mqtt_out_cmd",
+        "type": "mqtt out",
+        "z": "f1",
+        "name": "Command Out",
+        "topic": "command/room",
+        "qos": "0",
+        "retain": "",
+        "broker": "mqtt_broker",
+        "wires": []
+    },
+    {
+        "id": "http_in_test",
+        "type": "http in",
+        "z": "f1",
+        "name": "Test Manual Control",
+        "url": "/test_open",
+        "method": "post",
+        "upload": false,
+        "wires": [["ui_btn_open_pass"]]
+    },
+    {
+        "id": "ui_btn_open_pass",
+        "type": "change",
+        "z": "f1",
+        "name": "Set Payload",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"room_id\":\"room1\",\"command\":\"unlockDoor\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "wires": [["mqtt_out_cmd", "http_res"]]
+    },
+    {
+        "id": "http_res",
+        "type": "http response",
+        "z": "f1",
+        "name": "",
+        "statusCode": "200",
+        "headers": {},
+        "wires": []
+    }
+]

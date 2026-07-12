@@ -121,3 +121,12 @@ services:
       - mosquitto
     environment:
       - MQTT_BROKER=mosquitto
+
+  node_red:
+    build:
+      context: ./services/node_red
+      dockerfile: Dockerfile
+    ports:
+      - "1880:1880"
+    depends_on:
+      - mosquitto
