@@ -1,0 +1,93 @@
+{
+  "room_id": "room1",
+  "version": "zelda_dungeon_v2",
+  "initial_state": "entrance_locked",
+  "states": {
+    "entrance_locked": {
+      "on_enter": [
+        {
+          "action": "publishStatus",
+          "status": "started"
+        }
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "switch_1",
+          "interaction_type": "button",
+          "value": "pressed",
+          "target_state": "main_chamber"
+        }
+      ]
+    },
+    "main_chamber": {
+      "on_enter": [
+        {
+          "action": "playAudio",
+          "track": "secret_sound.mp3"
+        }
+      ],
+      "transitions": [
+        {
+          "trigger": "time",
+          "duration_seconds": 3,
+          "target_state": "hint_needed"
+        },
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "boss_key_reader",
+          "interaction_type": "rfid",
+          "value": "triforce_key",
+          "target_state": "boss_room"
+        }
+      ]
+    },
+    "hint_needed": {
+      "on_enter": [
+        {
+          "action": "playAudio",
+          "track": "navi_listen.mp3"
+        }
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "boss_key_reader",
+          "interaction_type": "rfid",
+          "value": "triforce_key",
+          "target_state": "boss_room"
+        }
+      ]
+    },
+    "boss_room": {
+      "on_enter": [
+        {
+          "action": "playAudio",
+          "track": "boss_music.mp3"
+        }
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "master_sword",
+          "interaction_type": "capacitive",
+          "value": "touched",
+          "target_state": "game_cleared"
+        }
+      ]
+    },
+    "game_cleared": {
+      "on_enter": [
+        {
+          "action": "publishStatus",
+          "status": "completed"
+        }
+      ],
+      "transitions": []
+    }
+  }
+}

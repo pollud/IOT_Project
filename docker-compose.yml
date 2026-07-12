@@ -67,3 +67,15 @@ services:
       - mosquitto
     environment:
       - MQTT_BROKER=mosquitto
+
+  room_control:
+    build:
+      context: .
+      dockerfile: services/room_control/Dockerfile
+    depends_on:
+      - mosquitto
+    volumes:
+      - ./config:/app/config
+    environment:
+      - MQTT_BROKER=mosquitto
+      - ROOM_ID=room1
