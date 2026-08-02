@@ -11,14 +11,22 @@ class BadgeConnector:
     def __init__(self, room_id, badge_id):
         self.room_id = room_id
         self.badge_id = badge_id
+        self.total_badges = 80
+        self.active_badges = 80
         
         broker = os.getenv("MQTT_BROKER", "mosquitto")
         self.mqtt = MQTTClient(
-            client_id=f"badge_{self.badge_id}",
+            client_id="badge_connector",
             broker=broker,
-            heartbeat_topic=build_topic(self.room_id, "badge", "heartbeat", self.badge_id),
+            heartbeat_topic="status/badge_connector",
             heartbeat_interval=5,
-            heartbeat_payload=HeartbeatEvent(device_id=f"badge_{self.badge_id}", status="ok")
+            heartbeat_payload={
+                "service": "badge_connector",
+                "status": "online",
+                "badges_active": self.active_badges,
+                "badges_total": self.total_badges,
+                "timestamp": time.time()
+            }
         )
         
         connected = False
@@ -39,22 +47,19 @@ class BadgeConnector:
         t.start()
         
     def simulation_loop(self):
-        battery = 100.0
         while True:
-            # Position
-            pos = BadgePositionEvent(badge_id=self.badge_id, x=random.uniform(0, 10), y=random.uniform(0, 10))
-            self.mqtt.publish(build_topic(self.room_id, "badge", "position", self.badge_id), pos)
-            
-            # Battery
-            battery -= 0.1
-            bat = BatteryEvent(badge_id=self.badge_id, battery_level=battery)
-            self.mqtt.publish(build_topic(self.room_id, "badge", "battery", self.badge_id), bat)
-            
-            time.sleep(2)
+            self.mqtt.publish("status/badge_connector", {
+                "service": "badge_connector",
+                "status": "online",
+                "badges_active": self.active_badges,
+                "badges_total": self.total_badges,
+                "timestamp": time.time()
+            }, qos=1, retain=True)
+            time.sleep(5)
             
     def force_fall(self):
         fall = BadgeSafetyEvent(badge_id=self.badge_id, fall_detected=True)
-        self.mqtt.publish(build_topic(self.room_id, "badge", "safety", self.badge_id), fall)
+        self.mqtt.publish(build_topic(self.room_id, "badge", "safety", self.badge_id), fall, qos=1)
 
 class BadgeRoute:
     def __init__(self, connector):
@@ -70,7 +75,6 @@ if __name__ == "__main__":
     room_id = os.getenv("ROOM_ID", "room1")
     badge_id = os.getenv("BADGE_ID", "b1")
     connector = BadgeConnector(room_id, badge_id)
-    
     root = BadgeRoute(connector)
     
     cherrypy.config.update({

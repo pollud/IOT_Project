@@ -1,9 +1,9 @@
 {
-  "room_id": "room2",
-  "version": "re_mansion_v1",
-  "initial_state": "mansion_hall",
+  "room_id": "room1",
+  "version": "aperture_v1",
+  "initial_state": "test_chamber_01",
   "states": {
-    "mansion_hall": {
+    "test_chamber_01": {
       "on_enter": [
         {
           "action": "publishStatus",
@@ -14,50 +14,50 @@
         {
           "trigger": "event",
           "event_type": "PropEvent",
-          "prop_id": "typewriter",
-          "interaction_type": "button",
-          "value": "pressed",
-          "target_state": "save_room"
+          "prop_id": "portal_gun",
+          "interaction_type": "pickup",
+          "value": "blue_portal",
+          "target_state": "test_chamber_02"
         }
       ]
     },
-    "save_room": {
+    "test_chamber_02": {
+      "on_enter": [],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "weighted_cube",
+          "interaction_type": "button",
+          "value": "placed",
+          "target_state": "glados_chamber"
+        }
+      ]
+    },
+    "glados_chamber": {
       "on_enter": [
         {
           "action": "playAudio",
-          "track": "save_theme.mp3"
+          "track": "still_alive.mp3"
         }
       ],
       "transitions": [
         {
           "trigger": "time",
           "duration_seconds": 2,
-          "target_state": "hallway"
+          "target_state": "incinerator"
         }
       ]
     },
-    "hallway": {
+    "incinerator": {
       "on_enter": [],
       "transitions": [
         {
           "trigger": "event",
           "event_type": "PropEvent",
-          "prop_id": "crest_socket",
+          "prop_id": "personality_core",
           "interaction_type": "rfid",
-          "value": "sun_crest",
-          "target_state": "courtyard"
-        }
-      ]
-    },
-    "courtyard": {
-      "on_enter": [],
-      "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "crank_hole",
-          "interaction_type": "rotary",
-          "value": "turned",
+          "value": "morality_core",
           "target_state": "game_cleared"
         }
       ]

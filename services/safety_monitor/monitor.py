@@ -43,11 +43,11 @@ class SafetyMonitor:
                 
                 # 1. Command emergency
                 cmd = RoomCommand(command="emergency_unlock")
-                self.mqtt.publish(build_topic(None, "command", "emergency"), cmd)
+                self.mqtt.publish(build_topic(None, "command", "emergency"), cmd, qos=1)
                 
                 # 2. System Alert
                 alert = AlertEvent(alert_type="fall", message=f"Fall detected for {badge_id}", source=room_id)
-                self.mqtt.publish(build_topic(None, "system", "alerts"), alert)
+                self.mqtt.publish(build_topic(None, "system", "alerts"), alert, qos=1)
                 
         elif "environment" in topic:
             data = json.loads(payload)
@@ -55,7 +55,7 @@ class SafetyMonitor:
                 parts = topic.split("/")
                 room_id = parts[1]
                 alert = AlertEvent(alert_type="temperature", message="High temperature", source=room_id)
-                self.mqtt.publish(build_topic(None, "system", "alerts"), alert)
+                self.mqtt.publish(build_topic(None, "system", "alerts"), alert, qos=1)
 
 if __name__ == "__main__":
     monitor = SafetyMonitor()

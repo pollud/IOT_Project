@@ -2,11 +2,19 @@ import json
 import requests
 from shared.fsm_schema import validate_strategy
 
+import time
+
 def load_strategy_from_file(filepath):
-    with open(filepath, 'r') as f:
-        data = json.load(f)
-    validate_strategy(data)
-    return data
+    for i in range(5):
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            validate_strategy(data)
+            return data
+        except json.JSONDecodeError as e:
+            if i == 4:
+                raise e
+            time.sleep(0.1)
 
 def load_strategy_from_catalog(room_id):
     try:

@@ -78,7 +78,8 @@ services:
       - ./config:/app/config
     environment:
       - MQTT_BROKER=mosquitto
-      - ROOM_ID=room1
+      - PYTHONUNBUFFERED=1
+      - ROOM_ID=ALL
 
   timeseries_adapter:
     build:
@@ -100,23 +101,24 @@ services:
     volumes:
       - ./data:/app/data
 
-  thingspeak_adapter:
-    build:
-      context: .
-      dockerfile: services/thingspeak_adapter/Dockerfile
-    ports:
-      - "8085:8085"
-    depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
-
   telegram_bot:
     build:
       context: .
       dockerfile: services/telegram_bot/Dockerfile
     ports:
       - "8086:8086"
+    depends_on:
+      - mosquitto
+    environment:
+      - MQTT_BROKER=mosquitto
+      - TELEGRAM_TOKEN=8959634259:AAG4IGW7z3jCx8DFHQak1IRBEgAHt45pj0E
+
+  web_dashboard:
+    build:
+      context: .
+      dockerfile: services/web_dashboard/Dockerfile
+    ports:
+      - "8087:8087"
     depends_on:
       - mosquitto
     environment:

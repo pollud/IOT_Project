@@ -54,7 +54,7 @@ def verify_phase_13():
     received_commands = []
     
     def on_msg(topic, payload):
-        if "command/room" in topic:
+        if "command/room/room1" in topic:
             if isinstance(payload, bytes):
                 payload = payload.decode('utf-8')
             received_commands.append(json.loads(payload))
@@ -66,7 +66,7 @@ def verify_phase_13():
     while not client.connected:
         time.sleep(0.1)
         
-    client.subscribe("command/room")
+    client.subscribe("command/room/room1")
     time.sleep(1) # wait for sub
     
     print("Testing /open room1...")
@@ -82,7 +82,7 @@ def verify_phase_13():
             break
             
     if not found:
-        print("FAIL: Expected command/room unlockDoor message not received")
+        print("FAIL: Expected command/room/room1 unlockDoor message not received")
         sys.exit(1)
 
     print("PASS: Phase 13 verification passed")

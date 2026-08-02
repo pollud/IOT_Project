@@ -11,14 +11,22 @@ class PropConnector:
     def __init__(self, room_id, prop_id):
         self.room_id = room_id
         self.prop_id = prop_id
+        self.total_props = 40
+        self.online_props = 40
         
         broker = os.getenv("MQTT_BROKER", "mosquitto")
         self.mqtt = MQTTClient(
-            client_id=f"prop_{self.prop_id}",
+            client_id="prop_connector",
             broker=broker,
-            heartbeat_topic=build_topic(self.room_id, "prop", "heartbeat", self.prop_id),
+            heartbeat_topic="status/prop_connector",
             heartbeat_interval=5,
-            heartbeat_payload=HeartbeatEvent(device_id=f"prop_{self.prop_id}", status="ok")
+            heartbeat_payload={
+                "service": "prop_connector",
+                "status": "online",
+                "props_online": self.online_props,
+                "props_total": self.total_props,
+                "timestamp": time.time()
+            }
         )
         
         connected = False
@@ -35,18 +43,23 @@ class PropConnector:
                 print(e)
                 time.sleep(2)
                 
-        # Simulate health messages
         t = threading.Thread(target=self.publish_health, daemon=True)
         t.start()
         
     def publish_health(self):
         while True:
-            self.mqtt.publish(build_topic(self.room_id, "prop", "health", self.prop_id), {"status": "ok", "battery": 95.0})
-            time.sleep(2)
+            self.mqtt.publish("status/prop_connector", {
+                "service": "prop_connector",
+                "status": "online",
+                "props_online": self.online_props,
+                "props_total": self.total_props,
+                "timestamp": time.time()
+            }, qos=1, retain=True)
+            time.sleep(5)
             
     def trigger(self, interaction_type, value):
         event = PropEvent(prop_id=self.prop_id, interaction_type=interaction_type, value=value)
-        self.mqtt.publish(build_topic(self.room_id, "prop", "interaction", self.prop_id), event)
+        self.mqtt.publish(build_topic(self.room_id, "prop", "interaction", self.prop_id), event, qos=1)
 
 class PropRoute:
     def __init__(self, connector):
@@ -57,27 +70,11 @@ class PropRoute:
     def trigger_button(self):
         self.connector.trigger("button", "pressed")
         return {"status": "ok"}
-        
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    @cherrypy.tools.json_in()
-    def trigger_rfid(self):
-        data = cherrypy.request.json if cherrypy.request.headers.get("Content-Type") == "application/json" else {}
-        uid = data.get("uid", "12345") if data else "12345"
-        self.connector.trigger("rfid", uid)
-        return {"status": "ok"}
-        
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def trigger_cap(self):
-        self.connector.trigger("capacitive", "touched")
-        return {"status": "ok"}
 
 if __name__ == "__main__":
     room_id = os.getenv("ROOM_ID", "room1")
     prop_id = os.getenv("PROP_ID", "prop1")
     connector = PropConnector(room_id, prop_id)
-    
     root = PropRoute(connector)
     
     cherrypy.config.update({

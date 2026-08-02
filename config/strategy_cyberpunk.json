@@ -1,0 +1,47 @@
+{
+  "room_id": "room_cyberpunk",
+  "name": "Cyberpunk Neural Hack",
+  "version": "1.0",
+  "initial_state": "entrance",
+  "states": {
+    "entrance": {
+      "on_enter": [
+        {"action": "setLights", "color": "cyan"},
+        {"action": "publishStatus", "status": "active"}
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "keypad_terminal",
+          "interaction_type": "keypad",
+          "value": "2077",
+          "target_state": "firewall_bypassed"
+        }
+      ]
+    },
+    "firewall_bypassed": {
+      "on_enter": [
+        {"action": "playAudio", "track": "hack_success.mp3"},
+        {"action": "setLights", "color": "purple"}
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "biometric_scanner",
+          "interaction_type": "rfid",
+          "value": "admin_chip",
+          "target_state": "core_unlocked"
+        }
+      ]
+    },
+    "core_unlocked": {
+      "on_enter": [
+        {"action": "unlockDoor", "target": "main_exit"},
+        {"action": "publishStatus", "status": "completed"}
+      ],
+      "transitions": []
+    }
+  }
+}

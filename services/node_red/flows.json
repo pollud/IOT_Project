@@ -67,7 +67,7 @@
         "icon": "",
         "payload": "{\"room_id\":\"room1\",\"command\":\"unlockDoor\"}",
         "payloadType": "json",
-        "topic": "command/room",
+        "topic": "command/room/room1",
         "wires": [["mqtt_out_cmd"]]
     },
     {
@@ -75,7 +75,7 @@
         "type": "mqtt out",
         "z": "f1",
         "name": "Command Out",
-        "topic": "command/room",
+        "topic": "command/room/room1",
         "qos": "0",
         "retain": "",
         "broker": "mqtt_broker",

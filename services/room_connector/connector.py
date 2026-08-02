@@ -72,7 +72,7 @@ class RoomConnector:
             try:
                 env = EnvironmentEvent(temperature=22.0 + random.random(), humidity=45.0 + random.random())
                 topic = build_topic(self.room_id, "room", "environment")
-                self.mqtt.publish(topic, env)
+                self.mqtt.publish(topic, env, qos=0)
             except Exception as e:
                 print(f"Error publishing environment: {e}")
             time.sleep(2)

@@ -1,3 +1,14 @@
 {
-    "rooms": []
+    "rooms": [
+        "room_cyberpunk",
+        "room_matrix",
+        "room_alien",
+        "room_dungeon",
+        "room_atlantis",
+        "room_tomb",
+        "room_haunted",
+        "room_asylum",
+        "room_sherlock",
+        "room_arcade"
+    ]
 }

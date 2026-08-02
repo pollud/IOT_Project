@@ -1,0 +1,47 @@
+{
+  "room_id": "room_haunted",
+  "name": "Haunted Séance Manor",
+  "version": "1.0",
+  "initial_state": "entrance",
+  "states": {
+    "entrance": {
+      "on_enter": [
+        {"action": "setLights", "color": "dim_white"},
+        {"action": "publishStatus", "status": "active"}
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "candle_sensor",
+          "interaction_type": "capacitive",
+          "value": "lit_four_candles",
+          "target_state": "spirits_summoned"
+        }
+      ]
+    },
+    "spirits_summoned": {
+      "on_enter": [
+        {"action": "playAudio", "track": "whispers.mp3"},
+        {"action": "setLights", "color": "dark_red"}
+      ],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "spirit_box",
+          "interaction_type": "button",
+          "value": "frequency_matched",
+          "target_state": "curse_lifted"
+        }
+      ]
+    },
+    "curse_lifted": {
+      "on_enter": [
+        {"action": "unlockDoor", "target": "main_exit"},
+        {"action": "publishStatus", "status": "completed"}
+      ],
+      "transitions": []
+    }
+  }
+}

@@ -39,7 +39,7 @@ def verify_phase_14():
     received_commands = []
     
     def on_msg(topic, payload):
-        if "command/room" in topic:
+        if "command/room/room1" in topic:
             if isinstance(payload, bytes):
                 payload = payload.decode('utf-8')
             received_commands.append(json.loads(payload))
@@ -51,7 +51,7 @@ def verify_phase_14():
     while not client.connected:
         time.sleep(0.1)
         
-    client.subscribe("command/room")
+    client.subscribe("command/room/room1")
     time.sleep(1) # wait for sub
     
     print("Triggering manual control via Node-RED API...")
@@ -70,7 +70,7 @@ def verify_phase_14():
             break
             
     if not found:
-        print("FAIL: Expected command/room unlockDoor message not received from Node-RED")
+        print("FAIL: Expected command/room/room1 unlockDoor message not received from Node-RED")
         sys.exit(1)
 
     print("PASS: Phase 14 verification passed")

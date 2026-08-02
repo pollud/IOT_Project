@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Master Interactive Command Center</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="dashboard-container">
+      
+      <header class="dashboard-header">
+        <div class="header-main">
+          <h1>GM COMMAND <span>CENTER</span></h1>
+          <div class="header-status">
+            <span class="status-dot"></span> Live Monitoring
+          </div>
+        </div>
+        
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+          <button class="nav-tab active" data-tab="rooms-tab">🎮 Game Rooms & Controls</button>
+          <button class="nav-tab" data-tab="analytics-tab">📊 Venue Intelligence</button>
+          <button class="nav-tab" data-tab="presence-tab">🖥️ System Infrastructure</button>
+        </nav>
+        
+        <div class="header-controls">
+          <div class="control-group">
+            <label for="time-period">Period:</label>
+            <select id="time-period" class="period-select">
+              <option value="1h">Last 1 Hour</option>
+              <option value="24h" selected>Last 24 Hours</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+          <button id="btn-reset-db" class="btn btn-danger">Reset DB</button>
+        </div>
+      </header>
+
+      <main id="app" class="gm-layout">
+        
+        <!-- TAB 1: Game Rooms & Controls -->
+        <section id="rooms-tab" class="tab-content active">
+          <div class="rooms-container" id="rooms-wrapper"></div>
+        </section>
+
+        <!-- TAB 2: Advanced Analytics -->
+        <section id="analytics-tab" class="tab-content">
+          <div class="analytics-grid" id="analytics-wrapper">
+            <div class="analytics-card" id="center-overview-card">
+              <h3>🏛️ Game Center KPIs</h3>
+              <div id="analytics-center-body">Loading center analytics...</div>
+            </div>
+            <div class="analytics-card" id="bottleneck-card">
+              <h3>🔍 Puzzle Bottleneck Analysis</h3>
+              <div id="analytics-bottlenecks-body">Loading bottleneck data...</div>
+            </div>
+            <div class="analytics-card" id="safety-card">
+              <h3>❤️ Safety & Comfort Index</h3>
+              <div id="analytics-safety-body">Loading safety metrics...</div>
+            </div>
+            <div class="analytics-card" id="maintenance-card">
+              <h3>🛠️ Maintenance Diagnostics</h3>
+              <div id="analytics-maintenance-body">Loading maintenance alerts...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: System Infrastructure & Presence -->
+        <section id="presence-tab" class="tab-content">
+          <div class="presence-header">
+            <h2>System Microservice & Hardware Presence</h2>
+            <p>Real-time status reported via MQTT Last Will & Testament (LWT) and heartbeat topics.</p>
+          </div>
+          <div class="presence-grid" id="presence-wrapper">
+            <div>Loading service presence...</div>
+          </div>
+        </section>
+        
+        <!-- Live Terminal logs -->
+        <section class="terminal-section">
+          <div class="terminal-header">
+            <h3>📟 LIVE TELEMETRY & EVENT STREAM</h3>
+            <span class="terminal-status">CONNECTED</span>
+          </div>
+          <div class="terminal-body" id="terminal-log">
+            <div class="log-line system">[SYSTEM] Establishing link with MQTT broker...</div>
+            <div class="log-line system">[SYSTEM] Command Center ready. Interactive room controls enabled.</div>
+          </div>
+        </section>
+
+      </main>
+
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

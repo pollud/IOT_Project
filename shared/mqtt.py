@@ -23,7 +23,13 @@ class MQTTClient:
         # Subscriptions
         self._subscriptions = []
         
-        # LWT
+        # LWT Default configuration
+        if lwt_topic is None and client_id:
+            lwt_topic = f"status/{client_id}"
+            lwt_payload = {"service": client_id, "status": "offline", "timestamp": time.time()}
+        
+        self.presence_topic = lwt_topic
+        
         if lwt_topic and lwt_payload:
             payload_str = json.dumps(lwt_payload) if isinstance(lwt_payload, dict) else str(lwt_payload)
             self.client.will_set(lwt_topic, payload=payload_str, qos=lwt_qos, retain=True)
@@ -38,6 +44,10 @@ class MQTTClient:
         if rc == 0:
             self.connected = True
             print(f"[{self.client_id}] Connected to broker.")
+            # Publish online presence (retained)
+            if self.presence_topic:
+                online_payload = {"service": self.client_id, "status": "online", "timestamp": time.time()}
+                self.publish(self.presence_topic, online_payload, qos=1, retain=True)
             # Resubscribe on reconnect
             for topic, qos in self._subscriptions:
                 self.client.subscribe(topic, qos=qos)

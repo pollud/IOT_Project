@@ -1,9 +1,9 @@
 {
-  "room_id": "room2",
-  "version": "re_mansion_v1",
-  "initial_state": "mansion_hall",
+  "room_id": "room1",
+  "version": "bowser_castle_v1",
+  "initial_state": "world_1",
   "states": {
-    "mansion_hall": {
+    "world_1": {
       "on_enter": [
         {
           "action": "publishStatus",
@@ -14,50 +14,50 @@
         {
           "trigger": "event",
           "event_type": "PropEvent",
-          "prop_id": "typewriter",
+          "prop_id": "question_block",
           "interaction_type": "button",
-          "value": "pressed",
-          "target_state": "save_room"
+          "value": "hit",
+          "target_state": "mushroom_state"
         }
       ]
     },
-    "save_room": {
+    "mushroom_state": {
       "on_enter": [
         {
           "action": "playAudio",
-          "track": "save_theme.mp3"
+          "track": "powerup.mp3"
         }
       ],
       "transitions": [
         {
           "trigger": "time",
-          "duration_seconds": 2,
-          "target_state": "hallway"
+          "duration_seconds": 1,
+          "target_state": "castle_bridge"
         }
       ]
     },
-    "hallway": {
+    "castle_bridge": {
       "on_enter": [],
       "transitions": [
         {
           "trigger": "event",
           "event_type": "PropEvent",
-          "prop_id": "crest_socket",
+          "prop_id": "axe",
+          "interaction_type": "capacitive",
+          "value": "touched",
+          "target_state": "bowser_defeated"
+        }
+      ]
+    },
+    "bowser_defeated": {
+      "on_enter": [],
+      "transitions": [
+        {
+          "trigger": "event",
+          "event_type": "PropEvent",
+          "prop_id": "toad",
           "interaction_type": "rfid",
-          "value": "sun_crest",
-          "target_state": "courtyard"
-        }
-      ]
-    },
-    "courtyard": {
-      "on_enter": [],
-      "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "crank_hole",
-          "interaction_type": "rotary",
-          "value": "turned",
+          "value": "thank_you",
           "target_state": "game_cleared"
         }
       ]

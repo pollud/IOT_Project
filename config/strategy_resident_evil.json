@@ -1,5 +1,5 @@
 {
-  "room_id": "room2",
+  "room_id": "room1",
   "version": "re_mansion_v1",
   "initial_state": "mansion_hall",
   "states": {
