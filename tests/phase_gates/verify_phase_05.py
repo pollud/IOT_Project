@@ -1,3 +1,5 @@
+"""Phase Gate 05 Verification Test: Validates Room Connector service environmental telemetry publishing and room/emergency actuator command logging."""
+
 import os
 import sys
 import subprocess
@@ -6,6 +8,7 @@ import requests
 import json
 
 def verify_phase_5():
+    """Verify room_connector environmental telemetry output, command processing, and REST endpoint (/actuator/health)."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     
     print("Bringing up docker-compose (including room_connector)...")
@@ -89,3 +92,4 @@ def verify_phase_5():
 
 if __name__ == '__main__':
     verify_phase_5()
+

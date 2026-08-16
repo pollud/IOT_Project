@@ -1,3 +1,5 @@
+"""Phase Gate 12 Verification Test: Validates ThingSpeak Adapter mock service telemetry ingestion and /history REST API buffer."""
+
 import os
 import sys
 import subprocess
@@ -7,6 +9,7 @@ import json
 import random
 
 def verify_phase_12():
+    """Verify thingspeak_adapter container startup, environmental telemetry buffer tracking, and /history REST response."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -71,3 +74,4 @@ def verify_phase_12():
 
 if __name__ == '__main__':
     verify_phase_12()
+

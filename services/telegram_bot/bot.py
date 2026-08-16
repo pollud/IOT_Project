@@ -1,15 +1,19 @@
+"""Telegram Bot microservice providing interactive room control, status reporting, alert forwarding, and simulation execution via Telegram and REST webhook."""
+
 import os
 import time
 import json
 import threading
 import cherrypy
 import requests
-import requests
 from shared.mqtt import MQTTClient
 from simulation_runner import run_live_simulation
 
 class TelegramBot:
+    """Telegram Bot and Webhook integration service for escape room remote monitoring and control."""
+
     def __init__(self):
+        """Initialize TelegramBot, set up MQTT subscriptions, and launch Telegram polling thread if token is present."""
         self.broker = os.getenv("MQTT_BROKER", "mosquitto")
         self.token = os.getenv("TELEGRAM_TOKEN", "")
         
@@ -50,7 +54,12 @@ class TelegramBot:
             t2 = threading.Thread(target=self.poll_telegram, daemon=True)
             t2.start()
             
-    def get_fancy_status(self):
+    def get_fancy_status(self) -> str:
+        """Format current room status cache into a styled HTML Telegram message.
+
+        Returns:
+            str: HTML formatted status string.
+        """
         if not self.cache["status"]:
             return "<i>No room status available yet.</i>"
         msg = "📊 <b>Escape Room Status</b>\n\n"
@@ -63,7 +72,12 @@ class TelegramBot:
             msg += f"  • Door: {lock_emoji}\n\n"
         return msg
 
-    def get_main_menu(self):
+    def get_main_menu(self) -> dict:
+        """Construct Telegram inline keyboard markup for interactive commands.
+
+        Returns:
+            dict: Reply markup dictionary for inline keyboard.
+        """
         return {
             "inline_keyboard": [
                 [{"text": "📊 Status", "callback_data": "status"}],
@@ -73,7 +87,14 @@ class TelegramBot:
             ]
         }
 
-    def send_telegram_message(self, chat_id, text, reply_markup=None):
+    def send_telegram_message(self, chat_id, text: str, reply_markup=None):
+        """Send HTML message with optional inline keyboard to target Telegram chat ID.
+
+        Args:
+            chat_id (str or int): Telegram chat ID.
+            text (str): Message text.
+            reply_markup (dict, optional): Keyboard markup dict.
+        """
         payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
         if reply_markup:
             payload["reply_markup"] = reply_markup
@@ -82,13 +103,20 @@ class TelegramBot:
         except Exception:
             pass
 
-    def answer_callback_query(self, callback_query_id, text=""):
+    def answer_callback_query(self, callback_query_id: str, text: str = ""):
+        """Acknowledge Telegram callback query from button press.
+
+        Args:
+            callback_query_id (str): Query ID.
+            text (str): Toast notification text.
+        """
         try:
             requests.post(self.telegram_url + "answerCallbackQuery", json={"callback_query_id": callback_query_id, "text": text})
         except Exception:
             pass
 
     def poll_telegram(self):
+        """Long-polling thread loop fetching updates, commands, and callback queries from Telegram API."""
         last_update_id = 0
         while True:
             try:
@@ -155,7 +183,13 @@ class TelegramBot:
                 pass
             time.sleep(1)
         
-    def on_message(self, topic, payload):
+    def on_message(self, topic: str, payload):
+        """Process incoming MQTT messages for room status updates and system alerts, broadcasting alerts to subscribed chats.
+
+        Args:
+            topic (str): MQTT topic.
+            payload (Any): Payload object or JSON string.
+        """
         try:
             if isinstance(payload, bytes):
                 payload_str = payload.decode('utf-8')
@@ -178,6 +212,11 @@ class TelegramBot:
             pass
             
     def run_zelda_simulation(self, chat_id):
+        """Run step-by-step interactive Zelda theme room simulation, publishing prop triggers and sending progress messages to Telegram.
+
+        Args:
+            chat_id (str or int): Target chat ID for notifications.
+        """
         self.send_telegram_message(chat_id, "🎮 <b>Simulation Started</b>: Zelda Dungeon (Room 1)\n\n<i>Pressing 'switch_1' button...</i>")
         self.mqtt.publish("game/room1/prop/switch_1/interaction", {"prop_id": "switch_1", "interaction_type": "button", "value": "pressed"})
         time.sleep(4) # wait for time trigger (3s) to pass hint_needed
@@ -192,7 +231,16 @@ class TelegramBot:
         
         self.send_telegram_message(chat_id, "✅ <b>Simulation Complete!</b> Check /status to see the door unlocked (game_cleared).")
             
-    def handle_command(self, cmd, args):
+    def handle_command(self, cmd: str, args: list) -> str:
+        """Process command string (/status, /open, /reset, /simulate, /help) and perform corresponding actions.
+
+        Args:
+            cmd (str): Command name.
+            args (list): List of command arguments.
+
+        Returns:
+            str: Resulting text response message.
+        """
         if cmd == "/status":
             return json.dumps(self.cache["status"])
         elif cmd == "/open":
@@ -206,9 +254,6 @@ class TelegramBot:
         elif cmd == "/simulate":
             if len(args) < 2:
                 return "Usage: /simulate <room_id> <strategy_name>"
-            # Because we need chat_id for live updates, but webhook might not pass it easily down here, 
-            # let's just trigger it with chat_id=None or a default if not found.
-            # Wait, handle_command doesn't have chat_id. Let's just import and run it.
             from simulation_runner import run_live_simulation
             run_live_simulation(args[0], args[1], self.mqtt, self, "system")
             return f"Started simulation for {args[0]} with {args[1]}"
@@ -220,6 +265,7 @@ class TelegramBot:
     @cherrypy.tools.json_out()
     @cherrypy.tools.json_in()
     def webhook(self):
+        """POST /webhook CherryPy HTTP REST endpoint for processing incoming bot webhook requests."""
         data = cherrypy.request.json
         text = data.get("message", {}).get("text", "")
         parts = text.split(" ")
@@ -250,3 +296,4 @@ if __name__ == "__main__":
         'server.socket_port': 8086,
     })
     cherrypy.quickstart(bot)
+

@@ -1,3 +1,5 @@
+"""Badge Connector microservice managing badge telemetry, heartbeat presence, and fall simulation API endpoints."""
+
 import cherrypy
 import os
 import time
@@ -8,7 +10,15 @@ from shared.models import BadgePositionEvent, BadgeSafetyEvent, BatteryEvent, He
 from shared.topics import build_topic
 
 class BadgeConnector:
-    def __init__(self, room_id, badge_id):
+    """Connector handling player/staff badge telemetry, periodic presence updates, and emergency fall detection events."""
+
+    def __init__(self, room_id: str, badge_id: str):
+        """Initialize BadgeConnector, connect to MQTT broker, and start periodic status publication thread.
+
+        Args:
+            room_id (str): Room identifier.
+            badge_id (str): Badge identifier.
+        """
         self.room_id = room_id
         self.badge_id = badge_id
         self.total_badges = 80
@@ -47,6 +57,7 @@ class BadgeConnector:
         t.start()
         
     def simulation_loop(self):
+        """Background thread publishing periodic status updates regarding active/total badge counts to MQTT status/badge_connector topic."""
         while True:
             self.mqtt.publish("status/badge_connector", {
                 "service": "badge_connector",
@@ -58,16 +69,25 @@ class BadgeConnector:
             time.sleep(5)
             
     def force_fall(self):
+        """Publish a forced fall detection safety event for testing or simulation purposes."""
         fall = BadgeSafetyEvent(badge_id=self.badge_id, fall_detected=True)
         self.mqtt.publish(build_topic(self.room_id, "badge", "safety", self.badge_id), fall, qos=1)
 
 class BadgeRoute:
-    def __init__(self, connector):
+    """REST Controller for triggering badge operations (e.g. forcing fall detection)."""
+
+    def __init__(self, connector: BadgeConnector):
+        """Initialize BadgeRoute controller.
+
+        Args:
+            connector (BadgeConnector): Instance of BadgeConnector.
+        """
         self.connector = connector
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def force_fall(self):
+        """POST/GET /force_fall endpoint to trigger a simulated fall event on the badge."""
         self.connector.force_fall()
         return {"status": "fall forced"}
 
@@ -82,3 +102,4 @@ if __name__ == "__main__":
         'server.socket_port': 8082,
     })
     cherrypy.quickstart(root)
+

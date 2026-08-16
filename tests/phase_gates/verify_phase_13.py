@@ -1,3 +1,5 @@
+"""Phase Gate 13 Verification Test: Validates Telegram Bot service commands (/status, /open) and door unlock command publishing to MQTT."""
+
 import os
 import sys
 import subprocess
@@ -7,6 +9,7 @@ import json
 import random
 
 def verify_phase_13():
+    """Verify telegram_bot HTTP webhook endpoint, response latency, and room unlock command publication to MQTT."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -89,3 +92,4 @@ def verify_phase_13():
 
 if __name__ == '__main__':
     verify_phase_13()
+

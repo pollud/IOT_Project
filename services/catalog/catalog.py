@@ -1,3 +1,5 @@
+"""Catalog microservice providing REST API endpoints for room configuration discovery and device/service registration, along with MQTT status tracking and file watching."""
+
 import cherrypy
 import paho.mqtt.client as mqtt
 import threading
@@ -11,14 +13,17 @@ from shared.utils import to_json
 from shared.constants import DEFAULT_PORT
 
 class GameCatalog:
+    """Catalog service maintaining registry of active services, devices, rooms, and room strategy configurations."""
+
     def __init__(self):
+        """Initialize GameCatalog, load configurations, connect to MQTT broker, and start strategy file watcher thread."""
         self.services = []
         self.devices = []
         self.rooms = ["room1"]
         self.load_configs()
         
         # Connect to Mosquitto. In docker-compose, hostname is "mosquitto"
-        # However, it might be running locally. Let's use env var or default.
+        # However, it might be running locally. Use environment variable or fallback default.
         broker = os.getenv("MQTT_BROKER", "mosquitto")
         
         self.mqtt_client = mqtt.Client()
@@ -36,23 +41,26 @@ class GameCatalog:
         self.mqtt_client.loop_start()
         self.mqtt_client.subscribe("status/+")
 
-        # File watcher thread
+        # File watcher thread for strategy configuration updates
         self.last_mtime = {}
         t = threading.Thread(target=self._watch_configs, daemon=True)
         t.start()
 
     def _on_presence_message(self, client, userdata, msg):
+        """Handle LWT and online presence heartbeat messages from registered services and devices."""
         try:
             payload = json.loads(msg.payload.decode('utf-8'))
             service_name = payload.get("service")
             status = payload.get("status")
             ts = payload.get("timestamp", time.time())
             
+            # Update matching service online status and timestamp
             for s in self.services:
                 if s.get("name") == service_name or s.get("client_id") == service_name:
                     s["last_seen"] = ts
                     s["online_status"] = status
                     
+            # Update matching device online status and timestamp
             for d in self.devices:
                 if d.get("device_id") == service_name:
                     d["last_seen"] = ts
@@ -61,6 +69,7 @@ class GameCatalog:
             print(f"Catalog presence handling error: {e}")
         
     def load_configs(self):
+        """Load initial registered services, devices, and rooms from JSON configuration files on disk."""
         try:
             with open("config/catalog.json", "r") as f:
                 data = json.load(f)
@@ -77,6 +86,7 @@ class GameCatalog:
             pass
 
     def save_catalog(self):
+        """Persist registered services and devices to config/catalog.json."""
         try:
             with open("config/catalog.json", "w") as f:
                 json.dump({
@@ -87,6 +97,7 @@ class GameCatalog:
             print(f"Error saving catalog: {e}")
 
     def _watch_configs(self):
+        """Background thread loop watching config/strategy_*.json files for modifications and broadcasting MQTT update events."""
         while True:
             for filepath in glob.glob("config/strategy_*.json"):
                 try:
@@ -116,9 +127,19 @@ class GameCatalog:
 catalog = GameCatalog()
 
 class ConfigRoute(object):
+    """REST Controller for serving room strategy configuration files."""
+
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def default(self, room):
+        """GET /config/{room} endpoint returning strategy configuration for a given room.
+
+        Args:
+            room (str): Room identifier.
+
+        Returns:
+            dict: Room FSM strategy definition.
+        """
         filepath = f"config/strategy_{room}.json"
         if os.path.exists(filepath):
             with open(filepath, 'r') as f:
@@ -126,24 +147,30 @@ class ConfigRoute(object):
         raise cherrypy.HTTPError(404)
 
 class Root(object):
+    """Root REST API application controller for CherryPy server."""
+
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def services(self):
+        """GET /services endpoint listing all registered microservices."""
         return {"services": catalog.services}
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def devices(self):
+        """GET /devices endpoint listing all registered IoT devices."""
         return {"devices": catalog.devices}
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def rooms(self):
+        """GET /rooms endpoint listing available room IDs."""
         return {"rooms": catalog.rooms}
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def health(self):
+        """GET /health endpoint providing system health, counts, and component presence statuses."""
         now = time.time()
         return {
             "timestamp": now,
@@ -157,6 +184,7 @@ class Root(object):
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
     def register(self):
+        """POST /register endpoint for dynamically registering or updating services and devices."""
         data = cherrypy.request.json
         data["last_seen"] = time.time()
         data["online_status"] = "online"
@@ -181,3 +209,4 @@ if __name__ == '__main__':
         'server.socket_port': 8080,
     })
     cherrypy.quickstart(root)
+

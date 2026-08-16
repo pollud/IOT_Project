@@ -1,3 +1,5 @@
+"""Analytics worker microservice exposing REST API endpoints for room stats, prop usage, environmental metrics, safety scoring, and maintenance diagnostics."""
+
 import cherrypy
 import sqlite3
 import os
@@ -7,13 +9,29 @@ import time
 from datetime import datetime, timedelta
 
 class AnalyticsRoute:
+    """Database query and data aggregation backend engine for Analytics REST endpoints."""
+
     def __init__(self):
+        """Initialize AnalyticsRoute with target SQLite database path from DB_PATH env var."""
         self.db_path = os.getenv("DB_PATH", "/app/data/events.db")
         
-    def get_conn(self):
+    def get_conn(self) -> sqlite3.Connection:
+        """Create and return a new SQLite database connection.
+
+        Returns:
+            sqlite3.Connection: SQLite connection object.
+        """
         return sqlite3.connect(self.db_path)
         
-    def get_time_condition(self, period):
+    def get_time_condition(self, period: str) -> str:
+        """Generate SQL WHERE condition snippet for time filtering based on period string.
+
+        Args:
+            period (str): Time period filter ("1h", "24h", "7d", or "all").
+
+        Returns:
+            str: SQL WHERE clause condition snippet.
+        """
         if period == "1h":
             return "timestamp >= datetime('now', '-1 hour')"
         elif period == "24h":
@@ -22,7 +40,16 @@ class AnalyticsRoute:
             return "timestamp >= datetime('now', '-7 days')"
         return "1=1"
 
-    def stats_room(self, room_id, period='all'):
+    def stats_room(self, room_id: str, period: str = 'all') -> dict:
+        """Calculate average solve time and total session count for a room over a given period.
+
+        Args:
+            room_id (str): Room identifier.
+            period (str): Time period filter.
+
+        Returns:
+            dict: Room solve statistics dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         time_cond = self.get_time_condition(period)
@@ -42,7 +69,15 @@ class AnalyticsRoute:
         
         return {"room_id": room_id, "avg_solve_time": round(avg_solve_time, 2), "total_sessions": count}
         
-    def stats_prop(self, prop_id):
+    def stats_prop(self, prop_id: str) -> dict:
+        """Query total interaction count for a specific puzzle prop.
+
+        Args:
+            prop_id (str): Prop identifier.
+
+        Returns:
+            dict: Prop interaction count dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
@@ -59,7 +94,16 @@ class AnalyticsRoute:
                 
         return {"prop_id": prop_id, "usage_count": usage_count}
         
-    def stats_environment(self, room_id, period='all'):
+    def stats_environment(self, room_id: str, period: str = 'all') -> dict:
+        """Compute environmental statistics (average, min, max temperature and humidity) for a room.
+
+        Args:
+            room_id (str): Room identifier.
+            period (str): Time period filter.
+
+        Returns:
+            dict: Environmental telemetry stats dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         time_cond = self.get_time_condition(period)
@@ -93,7 +137,16 @@ class AnalyticsRoute:
             }
         }
         
-    def stats_history(self, room_id, period='all'):
+    def stats_history(self, room_id: str, period: str = 'all') -> dict:
+        """Retrieve historical environmental time-series data points for chart plotting.
+
+        Args:
+            room_id (str): Room identifier.
+            period (str): Time period filter.
+
+        Returns:
+            dict: Historical environmental series dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         time_cond = self.get_time_condition(period)
@@ -123,8 +176,12 @@ class AnalyticsRoute:
 
     # --- ADVANCED DATA PROCESSING ENDPOINTS ---
 
-    def stats_bottlenecks(self):
-        """Analyzes puzzle state completion times and identifies chokepoint puzzles across rooms."""
+    def stats_bottlenecks(self) -> dict:
+        """Analyze puzzle completion times and identify chokepoint puzzles across all rooms.
+
+        Returns:
+            dict: Chokepoints analysis dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
@@ -157,16 +214,20 @@ class AnalyticsRoute:
             "chokepoints": prop_stats
         }
 
-    def stats_safety(self):
-        """Computes Room Physical Strain & Safety Comfort Index (0-100%)."""
+    def stats_safety(self) -> dict:
+        """Compute Room Physical Strain & Safety Comfort Index (0-100%).
+
+        Returns:
+            dict: Safety comfort index and environmental metric summary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
-        # Check alerts count
+        # Query total safety alerts
         cursor.execute("SELECT COUNT(*) FROM events WHERE topic LIKE '%system/alerts%' OR topic LIKE '%safety%'")
         alert_count = cursor.fetchone()[0]
         
-        # Query ambient averages
+        # Query ambient environmental averages
         cursor.execute("SELECT AVG(json_extract(payload, '$.temperature')), AVG(json_extract(payload, '$.humidity')) FROM events WHERE topic LIKE '%environment%'")
         env_row = cursor.fetchone()
         conn.close()
@@ -190,8 +251,12 @@ class AnalyticsRoute:
             }
         }
 
-    def stats_maintenance(self):
-        """Generates Hardware Diagnostics and Preventative Maintenance Alerts for props/sensors."""
+    def stats_maintenance(self) -> dict:
+        """Generate Hardware Diagnostics and Preventative Maintenance Alerts for props/sensors (e.g. low battery).
+
+        Returns:
+            dict: Hardware maintenance warnings list.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
@@ -224,8 +289,12 @@ class AnalyticsRoute:
             "maintenance_required": maintenance_list
         }
 
-    def stats_game_center(self):
-        """Aggregates Center-wide KPIs across all 10 theme rooms."""
+    def stats_game_center(self) -> dict:
+        """Aggregate Center-wide Key Performance Indicators (KPIs) across all 10 theme rooms.
+
+        Returns:
+            dict: Game center KPI metrics dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
@@ -255,8 +324,15 @@ class AnalyticsRoute:
             }
         }
 
-    def stats_heatmap(self, room_id):
-        """Constructs spatial position coordinate heatmaps for a room."""
+    def stats_heatmap(self, room_id: str) -> dict:
+        """Construct spatial position coordinate heatmaps for player movement within a room.
+
+        Args:
+            room_id (str): Room identifier.
+
+        Returns:
+            dict: Heatmap coordinate matrix dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         
@@ -280,7 +356,12 @@ class AnalyticsRoute:
             "heatmap_matrix": coordinates
         }
 
-    def stats_reset(self):
+    def stats_reset(self) -> dict:
+        """Purge all stored events from the database.
+
+        Returns:
+            dict: Success or error response dictionary.
+        """
         conn = self.get_conn()
         cursor = conn.cursor()
         try:
@@ -293,6 +374,7 @@ class AnalyticsRoute:
             conn.close()
         
     def prune_old_data_loop(self):
+        """Background thread loop executing every hour to prune events older than 7 days from SQLite database."""
         while True:
             try:
                 conn = self.get_conn()
@@ -310,60 +392,74 @@ class AnalyticsRoute:
             time.sleep(3600)
 
 class Root:
+    """CherryPy Root controller placeholder."""
     pass
     
 class Stats:
+    """REST Controller mapping /stats endpoints to AnalyticsRoute calculations."""
+
     def __init__(self):
+        """Initialize Stats REST endpoint controller."""
         self.analytics = AnalyticsRoute()
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def room(self, room_id, period='all'):
+        """GET /stats/room endpoint returning room solve duration stats."""
         return self.analytics.stats_room(room_id, period)
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def prop(self, prop_id):
+        """GET /stats/prop endpoint returning prop usage stats."""
         return self.analytics.stats_prop(prop_id)
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def environment(self, room_id, period='all'):
+        """GET /stats/environment endpoint returning room environmental stats."""
         return self.analytics.stats_environment(room_id, period)
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def history(self, room_id, period='all'):
+        """GET /stats/history endpoint returning environmental time-series data points."""
         return self.analytics.stats_history(room_id, period)
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def bottlenecks(self):
+        """GET /stats/bottlenecks endpoint returning puzzle chokepoints analytics."""
         return self.analytics.stats_bottlenecks()
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def safety(self):
+        """GET /stats/safety endpoint returning room safety comfort index."""
         return self.analytics.stats_safety()
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def maintenance(self):
+        """GET /stats/maintenance endpoint returning hardware diagnostic alerts."""
         return self.analytics.stats_maintenance()
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def game_center(self):
+        """GET /stats/game_center endpoint returning game center KPI summary."""
         return self.analytics.stats_game_center()
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def heatmap(self, room_id):
+        """GET /stats/heatmap endpoint returning player movement coordinate heatmap data."""
         return self.analytics.stats_heatmap(room_id)
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def reset(self):
+        """POST/GET /stats/reset endpoint to purge stored events database."""
         return self.analytics.stats_reset()
 
 if __name__ == "__main__":
@@ -404,3 +500,4 @@ if __name__ == "__main__":
         'server.socket_port': 8084,
     })
     cherrypy.quickstart(root, '/', conf)
+

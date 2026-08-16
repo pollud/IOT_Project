@@ -1,3 +1,5 @@
+"""Timeseries Adapter microservice for asynchronously persisting MQTT telemetry events into SQLite database with batch writing and data retention pruning."""
+
 import os
 import time
 import json
@@ -7,7 +9,10 @@ import threading
 from shared.mqtt import MQTTClient
 
 class TimeSeriesAdapter:
+    """High-throughput timeseries storage adapter queuing MQTT events and performing batch inserts into SQLite database."""
+
     def __init__(self):
+        """Initialize TimeSeriesAdapter, configure database connection, setup write queue, connect to MQTT, and start worker threads."""
         broker = os.getenv("MQTT_BROKER", "mosquitto")
         self.db_path = os.getenv("DB_PATH", "/app/data/events.db")
         self.batch_size = int(os.getenv("BATCH_SIZE", "50"))
@@ -23,11 +28,11 @@ class TimeSeriesAdapter:
         self.write_queue = queue.Queue(maxsize=10000)
         self.running = True
         
-        # Start DB Batch Writer Worker
+        # Start DB Batch Writer Worker Thread
         self.writer_thread = threading.Thread(target=self._db_writer_loop, daemon=True)
         self.writer_thread.start()
         
-        # Start Retention Pruning Worker
+        # Start Retention Pruning Worker Thread
         self.prune_thread = threading.Thread(target=self._prune_loop, daemon=True)
         self.prune_thread.start()
         
@@ -60,6 +65,7 @@ class TimeSeriesAdapter:
         self.mqtt.subscribe("system/alerts")
         
     def init_db(self):
+        """Initialize SQLite events table and composite index on (topic, timestamp)."""
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +77,13 @@ class TimeSeriesAdapter:
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_topic_timestamp ON events(topic, timestamp)')
         self.conn.commit()
         
-    def on_message(self, topic, payload):
+    def on_message(self, topic: str, payload):
+        """Enqueue incoming MQTT message topic and payload string into the thread-safe write queue.
+
+        Args:
+            topic (str): MQTT topic string.
+            payload (Any): Message payload object or string.
+        """
         try:
             if isinstance(payload, bytes):
                 payload_str = payload.decode('utf-8')
@@ -87,6 +99,7 @@ class TimeSeriesAdapter:
             print(f"Error queueing message: {e}")
 
     def _db_writer_loop(self):
+        """Background thread loop flushing batches of queued events to SQLite when batch_size or flush_interval threshold is reached."""
         last_flush = time.time()
         batch = []
         while self.running:
@@ -107,6 +120,7 @@ class TimeSeriesAdapter:
                 print(f"Error in batch DB write: {e}")
 
     def _prune_loop(self):
+        """Background thread loop executing hourly to delete raw environment and position telemetry older than retention_days."""
         while self.running:
             time.sleep(3600)  # Prune every hour
             try:
@@ -120,6 +134,7 @@ class TimeSeriesAdapter:
                 print(f"Pruning error: {e}")
 
     def stop(self):
+        """Stop background execution loops, stop MQTT client, and close database connection."""
         self.running = False
         self.mqtt.stop()
         self.conn.close()
@@ -131,3 +146,4 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         adapter.stop()
+

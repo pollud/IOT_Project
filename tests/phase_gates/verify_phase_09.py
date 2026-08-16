@@ -1,3 +1,5 @@
+"""Phase Gate 09 Verification Test: Validates Room FSM Controller strategy loading, hot-swap reconfiguration, event transitions, timed transitions, and completion status."""
+
 import os
 import sys
 import subprocess
@@ -5,6 +7,7 @@ import time
 import json
 
 def verify_phase_9():
+    """Verify room_control FSM engine execution, strategy hot-swapping, prop interaction triggers, timer scheduling, and game completion events."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -25,8 +28,8 @@ def verify_phase_9():
             },
             "hint_needed": {
                 "on_enter": [{"action": "playAudio", "track": "navi_listen.mp3"}],
-                "transitions": [{"trigger": "event", "event_type": "PropEvent", "prop_id": "boss_key_reader", "interaction_type": "rfid", "value": "triforce_key", "target_state": "boss_room"}]
-            },
+                "transitions": [{"trigger": "event", "event_type": "PropEvent", "prop_id": "boss_key_reader", "interaction_type": "rfid", "value": "triforce_key", "target_state": "boss_room"}
+            ]},
             "boss_room": {
                 "on_enter": [{"action": "playAudio", "track": "boss_music.mp3"}],
                 "transitions": [{"trigger": "event", "event_type": "PropEvent", "prop_id": "master_sword", "interaction_type": "capacitive", "value": "touched", "target_state": "game_cleared"}]
@@ -126,3 +129,4 @@ def verify_phase_9():
 
 if __name__ == '__main__':
     verify_phase_9()
+

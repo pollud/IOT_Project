@@ -1,3 +1,5 @@
+"""Phase Gate 07 Verification Test: Validates Prop Connector interaction triggers (button, rfid, capacitive) and background health/heartbeat publishing."""
+
 import os
 import sys
 import subprocess
@@ -6,6 +8,7 @@ import requests
 import json
 
 def verify_phase_7():
+    """Verify prop_connector HTTP trigger endpoints and MQTT interaction message output."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -54,7 +57,7 @@ def verify_phase_7():
     client.subscribe("game/room1/prop/prop1/health")
     client.subscribe("game/room1/prop/prop1/heartbeat")
     
-    # Check Button
+    # Check Button trigger
     interactions.clear()
     requests.get("http://localhost:8083/trigger_button")
     time.sleep(1)
@@ -62,7 +65,7 @@ def verify_phase_7():
         print(f"FAIL: Button trigger failed. interactions={interactions}")
         sys.exit(1)
         
-    # Check RFID
+    # Check RFID trigger
     interactions.clear()
     requests.post("http://localhost:8083/trigger_rfid", json={"uid": "xyz"})
     time.sleep(1)
@@ -70,7 +73,7 @@ def verify_phase_7():
         print(f"FAIL: RFID trigger failed. interactions={interactions}")
         sys.exit(1)
         
-    # Check Capacitive
+    # Check Capacitive trigger
     interactions.clear()
     requests.get("http://localhost:8083/trigger_cap")
     time.sleep(1)
@@ -92,3 +95,4 @@ def verify_phase_7():
 
 if __name__ == '__main__':
     verify_phase_7()
+

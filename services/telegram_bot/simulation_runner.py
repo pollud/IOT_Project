@@ -1,8 +1,19 @@
+"""Simulation runner helper for executing live step-by-step game strategy playthroughs with Telegram feedback."""
+
 import json
 import time
 import threading
 
-def run_live_simulation(room_id, strategy_name, mqtt_client, bot, chat_id):
+def run_live_simulation(room_id: str, strategy_name: str, mqtt_client, bot, chat_id):
+    """Run an automated, step-by-step room strategy simulation in a background thread, publishing MQTT prop events and sending Telegram progress notifications.
+
+    Args:
+        room_id (str): Target room identifier.
+        strategy_name (str): Strategy configuration name (e.g. "matrix", "cyberpunk").
+        mqtt_client: MQTTClient instance for publishing triggers.
+        bot: TelegramBot instance for sending status updates.
+        chat_id (str or int): Telegram chat ID receiving updates.
+    """
     def simulation_thread():
         try:
             bot.send_telegram_message(chat_id=chat_id, text=f"🎮 Starting LIVE simulation for {room_id} with strategy: {strategy_name}")
@@ -38,7 +49,7 @@ def run_live_simulation(room_id, strategy_name, mqtt_client, bot, chat_id):
                             "value": t["value"]
                         })
                         
-                        # Wait long enough for the dashboard to visibly update and teacher to see it
+                        # Wait long enough for dashboard visible updates
                         time.sleep(5)
                         
                     elif t["trigger"] == "time":
@@ -56,3 +67,4 @@ def run_live_simulation(room_id, strategy_name, mqtt_client, bot, chat_id):
 
     t = threading.Thread(target=simulation_thread, daemon=True)
     t.start()
+

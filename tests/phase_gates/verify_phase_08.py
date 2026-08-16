@@ -1,3 +1,5 @@
+"""Phase Gate 08 Verification Test: Validates Safety Monitor service fall detection, emergency override broadcasting, and system alert publishing."""
+
 import os
 import sys
 import subprocess
@@ -6,6 +8,7 @@ import requests
 import json
 
 def verify_phase_8():
+    """Verify safety_monitor fall detection processing, emergency broadcast to MQTT command/emergency, and room actuator override logging."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -68,3 +71,4 @@ def verify_phase_8():
 
 if __name__ == '__main__':
     verify_phase_8()
+

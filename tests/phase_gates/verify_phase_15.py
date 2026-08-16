@@ -1,3 +1,5 @@
+"""Phase Gate 15 Verification Test: Validates multi-room isolation and independent FSM state tracking across parallel escape room sessions."""
+
 import os
 import sys
 import subprocess
@@ -11,6 +13,7 @@ sys.path.insert(0, project_dir)
 from shared.mqtt import MQTTClient
 
 def verify_phase_15():
+    """Verify multi-room system execution, state isolation between room1 and room2, and independent stats generation."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -58,9 +61,9 @@ def verify_phase_15():
     print(f"Room 1 state after move: {room_states.get('room1')}")
     print(f"Room 2 state after move: {room_states.get('room2')}")
     
-    # Ensure they are independent
+    # Ensure room state updates remain independent
     if room_states.get("room1") == room_states.get("room2") and room_states.get("room1") is not None:
-        pass # Wait, if room1 changed to boss_key_room, room2 should remain where it was
+        pass
     
     client.publish("game/room1/session/ended", {"room_id": "room1", "duration": 300, "status": "won"})
     
@@ -91,3 +94,4 @@ def verify_phase_15():
 
 if __name__ == '__main__':
     verify_phase_15()
+

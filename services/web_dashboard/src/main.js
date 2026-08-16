@@ -1,3 +1,7 @@
+/**
+ * Main Web Dashboard Application Script handling state management, SSE live telemetry streams, Chart.js graphs, and interactive room control.
+ */
+
 import './style.css'
 
 const roomsWrapper = document.getElementById('rooms-wrapper');
@@ -30,7 +34,12 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
-// Terminal Logging Helper
+/**
+ * Append a formatted log entry line to the terminal UI panel.
+ * 
+ * @param {string} message - Message text or HTML string.
+ * @param {string} [type='system'] - Log category CSS class.
+ */
 function logToTerminal(message, type = 'system') {
   const timestamp = new Date().toLocaleTimeString();
   const logLine = document.createElement('div');
@@ -40,11 +49,18 @@ function logToTerminal(message, type = 'system') {
   terminalLog.scrollTop = terminalLog.scrollHeight;
 }
 
+/**
+ * Get the currently selected timeframe period filter.
+ * 
+ * @returns {string} Selected period string ("1h", "24h", "7d", or "all").
+ */
 function getSelectedPeriod() {
   return periodSelect.value;
 }
 
-// Fetch Room Status
+/**
+ * Fetch status of all game rooms from the web dashboard API and update UI panels.
+ */
 async function fetchStatus() {
   try {
     const res = await fetch(`${API_BASE}/status`);
@@ -79,7 +95,11 @@ async function fetchStatus() {
   }
 }
 
-// Fetch Room Strategy Schema
+/**
+ * Fetch FSM strategy configuration for a room from catalog API.
+ * 
+ * @param {string} roomId - Room identifier.
+ */
 async function fetchRoomStrategy(roomId) {
   try {
     const res = await fetch(`${API_BASE}/strategy/${roomId}`);
@@ -91,7 +111,11 @@ async function fetchRoomStrategy(roomId) {
   }
 }
 
-// Update Room Metrics & Charts
+/**
+ * Fetch analytics stats, environmental telemetry, and chart history for a room.
+ * 
+ * @param {string} roomId - Room identifier.
+ */
 async function updateRoomData(roomId) {
   const period = getSelectedPeriod();
   try {
@@ -117,7 +141,11 @@ async function updateRoomData(roomId) {
   }
 }
 
-// Render Room Card Panel with Full Interactive Controls
+/**
+ * Render the complete room card panel container with interactive controls and stats cards into DOM.
+ * 
+ * @param {string} roomId - Room identifier.
+ */
 function renderRoomPanel(roomId) {
   const data = roomsState[roomId];
   const strategyName = data.strategy ? data.strategy.name || data.strategy.version : 'Custom Game';
@@ -130,7 +158,7 @@ function renderRoomPanel(roomId) {
       .map(state => `<span class="fsm-step" id="step-${roomId}-${state}">${state}</span>`)
       .join('');
 
-    // Extract props from strategy
+    // Extract prop IDs from strategy definition
     const propSet = new Set();
     Object.values(data.strategy.states).forEach(st => {
       (st.transitions || []).forEach(tr => {
@@ -237,7 +265,11 @@ function renderRoomPanel(roomId) {
   roomsWrapper.insertAdjacentHTML('beforeend', html);
 }
 
-// Update DOM elements
+/**
+ * Update DOM elements for a room panel (state text, lock tag, active step highlight, solve stats).
+ * 
+ * @param {string} roomId - Room identifier.
+ */
 function updateRoomDOM(roomId) {
   const data = roomsState[roomId];
   const stateEl = document.getElementById(`state-${roomId}`);
@@ -279,7 +311,11 @@ function updateRoomDOM(roomId) {
   }
 }
 
-// Init Chart.js line graph
+/**
+ * Initialize Chart.js line graph canvas for environmental trends.
+ * 
+ * @param {string} roomId - Room identifier.
+ */
 function initRoomChart(roomId) {
   const canvas = document.getElementById(`chart-canvas-${roomId}`);
   if (!canvas) return;
@@ -324,6 +360,12 @@ function initRoomChart(roomId) {
   });
 }
 
+/**
+ * Update Chart.js dataset with new historical data points.
+ * 
+ * @param {string} roomId - Room identifier.
+ * @param {Array<Object>} history - Environmental history data points.
+ */
 function updateChart(roomId, history) {
   const chart = roomCharts[roomId];
   if (!chart) return;
@@ -338,7 +380,11 @@ function updateChart(roomId, history) {
   chart.update();
 }
 
-// Interactive Control Commands
+/**
+ * Trigger prop interaction event via API.
+ * 
+ * @param {string} roomId - Target room ID.
+ */
 window.triggerProp = async (roomId) => {
   const propId = document.getElementById(`prop-id-${roomId}`).value;
   const type = document.getElementById(`prop-type-${roomId}`).value;
@@ -362,6 +408,11 @@ window.triggerProp = async (roomId) => {
   }
 };
 
+/**
+ * Trigger audio playback command via API.
+ * 
+ * @param {string} roomId - Target room ID.
+ */
 window.playAudio = async (roomId) => {
   const track = document.getElementById(`audio-track-${roomId}`).value;
   logToTerminal(`🔊 Playing Audio <b>[${track}]</b> in room: <b>${roomId}</b>`, 'command');
@@ -376,6 +427,11 @@ window.playAudio = async (roomId) => {
   }
 };
 
+/**
+ * Apply ambiance lighting color command via API.
+ * 
+ * @param {string} roomId - Target room ID.
+ */
 window.setLights = async (roomId) => {
   const color = document.getElementById(`light-color-${roomId}`).value;
   logToTerminal(`💡 Applying Light <b>[${color}]</b> in room: <b>${roomId}</b>`, 'command');
@@ -390,6 +446,12 @@ window.setLights = async (roomId) => {
   }
 };
 
+/**
+ * Dispatch generic operator room command (unlockDoor, reset).
+ * 
+ * @param {string} roomId - Target room ID.
+ * @param {string} command - Command name string.
+ */
 window.sendCommand = async (roomId, command) => {
   try {
     logToTerminal(`🚀 Sending Command <b>[${command}]</b> to room: <b>${roomId}</b>`, 'command');
@@ -404,7 +466,9 @@ window.sendCommand = async (roomId, command) => {
   }
 };
 
-// Fetch System Infrastructure Presence Data
+/**
+ * Fetch and render system presence data cards.
+ */
 async function fetchPresenceData() {
   try {
     const res = await fetch(`${API_BASE}/presence`);
@@ -444,7 +508,9 @@ async function fetchPresenceData() {
   }
 }
 
-// Fetch Advanced Venue Intelligence Analytics
+/**
+ * Fetch and render advanced venue analytics dashboards (KPIs, bottlenecks, safety index, hardware alerts).
+ */
 async function fetchAnalyticsData() {
   try {
     // 1. Center Overview
@@ -520,7 +586,7 @@ btnResetDb.addEventListener('click', async () => {
   }
 });
 
-// Boot logic
+// Boot logic initialization
 fetchStatus();
 setInterval(fetchStatus, 2000);
 setInterval(async () => {
@@ -528,3 +594,4 @@ setInterval(async () => {
     await updateRoomData(roomId);
   }
 }, 5000);
+

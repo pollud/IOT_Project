@@ -1,3 +1,5 @@
+"""Phase Gate 11 Verification Test: Validates Analytics Engine service REST API endpoints and SQL aggregate calculation for prop interaction usage."""
+
 import os
 import sys
 import subprocess
@@ -8,6 +10,7 @@ import sqlite3
 import random
 
 def verify_phase_11():
+    """Verify analytics service REST API health and prop usage stats calculation from SQLite events table."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     
     print("Bringing up docker-compose (including analytics)...")
@@ -37,7 +40,7 @@ for _ in range(5):
             payload JSON
         )''')
         for _ in range(3):
-            cursor.execute("INSERT INTO events (topic, payload) VALUES (?, ?)", ('{topic}', '{payload}'))
+            cursor.execute("INSERT INTO events (topic, payload) VALUES ('{topic}', '{payload}')")
         conn.commit()
         conn.close()
         connected = True
@@ -84,3 +87,4 @@ if not connected:
 
 if __name__ == '__main__':
     verify_phase_11()
+

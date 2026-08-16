@@ -1,3 +1,5 @@
+"""Phase Gate 03 Verification Test: Validates Catalog REST endpoints (/register, /devices) and hot-reload file watching to MQTT config-update topic."""
+
 import os
 import sys
 import subprocess
@@ -6,10 +8,12 @@ import requests
 import json
 
 def install_requirements():
+    """Install project dependencies from requirements.txt silently."""
     req_file = os.path.join(os.path.dirname(__file__), '..', '..', 'requirements.txt')
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"])
 
 def verify_phase_3():
+    """Verify Catalog REST service health, register endpoint, and strategy file update MQTT publication."""
     try:
         install_requirements()
     except Exception as e:
@@ -116,3 +120,4 @@ def verify_phase_3():
 
 if __name__ == '__main__':
     verify_phase_3()
+

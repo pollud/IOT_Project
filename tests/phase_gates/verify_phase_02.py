@@ -1,13 +1,17 @@
+"""Phase Gate 02 Verification Test: Validates Docker container orchestrator startup and Mosquitto MQTT broker round-trip communication."""
+
 import os
 import sys
 import subprocess
 import time
 
 def install_requirements():
+    """Install project dependencies from requirements.txt silently."""
     req_file = os.path.join(os.path.dirname(__file__), '..', '..', 'requirements.txt')
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"])
 
 def verify_phase_2():
+    """Verify Mosquitto container startup via Docker Compose and test MQTT message publish/subscribe round-trip."""
     try:
         install_requirements()
     except Exception as e:
@@ -21,7 +25,6 @@ def verify_phase_2():
     
     print("Bringing up docker-compose...")
     try:
-        # For mac we might need docker compose (v2) instead of docker-compose
         subprocess.check_call(["docker", "compose", "up", "-d"], cwd=project_dir)
     except Exception as e:
         try:
@@ -72,3 +75,4 @@ def verify_phase_2():
 
 if __name__ == '__main__':
     verify_phase_2()
+

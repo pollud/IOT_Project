@@ -1,3 +1,5 @@
+"""Simulation runner script for testing strategy hot-swaps, environmental telemetry stream, and room session stats."""
+
 import json
 import time
 import random
@@ -7,15 +9,25 @@ from shared.mqtt import MQTTClient
 import os
 import sys
 
+#: Available game strategies for simulation testing.
 strategies = ['resident_evil', 'portal', 'mario', 'pokemon', 'fallout']
 
-def load_strategy(name):
+def load_strategy(name: str) -> dict:
+    """Load JSON strategy configuration file from disk.
+
+    Args:
+        name (str): Strategy name.
+
+    Returns:
+        dict: Strategy dictionary.
+    """
     with open(f'config/strategy_{name}.json', 'r') as f:
         return json.loads(f.read())
 
 client = MQTTClient('simulator_master', broker='localhost')
 
 def environment_publisher():
+    """Background thread loop publishing environmental sensor telemetry (temp, humidity) for room1 and room2."""
     t = threading.current_thread()
     while getattr(t, 'do_run', True):
         temp = 20.0 + random.uniform(-2, 2)
@@ -24,7 +36,14 @@ def environment_publisher():
         client.publish('room/room2/environment', {'temperature': temp + 2, 'humidity': hum + 5})
         time.sleep(1)
 
-def run_simulation(room_id, strategy_name, badge_id):
+def run_simulation(room_id: str, strategy_name: str, badge_id: str):
+    """Simulate a complete game session for room_id using strategy_name and badge_id.
+
+    Args:
+        room_id (str): Target room ID ("room1", "room2").
+        strategy_name (str): Name of strategy to load.
+        badge_id (str): Player badge identifier.
+    """
     print(f'Starting simulation for {room_id} with strategy {strategy_name}')
     data = load_strategy(strategy_name)
     data['room_id'] = room_id
@@ -76,6 +95,7 @@ env_thread = threading.Thread(target=environment_publisher)
 env_thread.do_run = True
 env_thread.start()
 
+# Step through each strategy pair in parallel simulation runs
 for i, strat in enumerate(strategies):
     strat_2 = strategies[(i+1) % len(strategies)]
     run_simulation('room1', strat, 'b1')
@@ -86,6 +106,7 @@ env_thread.do_run = False
 env_thread.join()
 client.stop()
 
+# Query room analytics statistics endpoints
 print('Fetching Analytics for room1:', flush=True)
 try:
     print(json.dumps(requests.get('http://localhost:8084/stats/room/room1').json(), indent=2), flush=True)
@@ -97,4 +118,5 @@ try:
     print(json.dumps(requests.get('http://localhost:8084/stats/room/room2').json(), indent=2), flush=True)
 except Exception as e:
     print('Failed', e)
+
 

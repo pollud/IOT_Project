@@ -1,3 +1,5 @@
+"""Room Connector microservice managing room environmental sensor publishing and actuator command reception."""
+
 import cherrypy
 import os
 import time
@@ -9,19 +11,34 @@ from shared.topics import build_topic
 import random
 
 class ActuatorRoute:
+    """REST endpoint handler for inspecting room actuator execution logs and health status."""
+
     def __init__(self, parent):
+        """Initialize ActuatorRoute.
+
+        Args:
+            parent (RoomConnector): Parent RoomConnector instance.
+        """
         self.parent = parent
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def health(self):
+        """GET /actuator/health endpoint returning operational status and log history."""
         return {"status": "ok", "logs": self.parent.actuator_log}
 
 class RoomConnector:
-    def __init__(self, room_id):
+    """Connector interfacing with room physical sensors (environment) and receiving actuator execution commands."""
+
+    def __init__(self, room_id: str):
+        """Initialize RoomConnector for specified room_id, connect to MQTT, subscribe to command topics, and start environment telemetry thread.
+
+        Args:
+            room_id (str): Target room identifier.
+        """
         self.room_id = room_id
         
-        # simulated actuators log
+        # Simulated actuators log history
         self.actuator_log = []
         
         broker = os.getenv("MQTT_BROKER", "mosquitto")
@@ -34,7 +51,7 @@ class RoomConnector:
         )
         self.mqtt.on_message_callback = self.on_mqtt_message
         
-        # Connect with retry
+        # Connect with retry logic
         connected = False
         while not connected:
             try:
@@ -49,17 +66,23 @@ class RoomConnector:
                 print(f"Waiting for mosquitto... {e}")
                 time.sleep(2)
             
-        # Subscriptions
+        # Topic Subscriptions
         self.mqtt.subscribe(build_topic(self.room_id, "room", "command"))
         self.mqtt.subscribe(build_topic(None, "command", "emergency"))
         
-        # Environment publish loop
+        # Environment telemetry publish loop thread
         t = threading.Thread(target=self.publish_environment, daemon=True)
         t.start()
         
         self.actuator = ActuatorRoute(self)
         
-    def on_mqtt_message(self, topic, payload):
+    def on_mqtt_message(self, topic: str, payload):
+        """Handle incoming room actuation commands and global emergency override commands.
+
+        Args:
+            topic (str): MQTT topic string.
+            payload (str): Message payload.
+        """
         if "emergency" in topic:
             print(f"[{self.room_id}] EMERGENCY OVERRIDE RECEIVED: {payload}")
             self.actuator_log.append({"type": "emergency", "payload": payload})
@@ -68,6 +91,7 @@ class RoomConnector:
             self.actuator_log.append({"type": "room_command", "payload": payload})
             
     def publish_environment(self):
+        """Background thread loop publishing simulated temperature and humidity sensor readings every 2 seconds."""
         while True:
             try:
                 env = EnvironmentEvent(temperature=22.0 + random.random(), humidity=45.0 + random.random())
@@ -80,6 +104,7 @@ class RoomConnector:
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def calibration(self):
+        """GET /calibration endpoint returning room sensor calibration offsets."""
         return {"temp_offset": -0.5, "hum_offset": 2.0}
 
 if __name__ == "__main__":
@@ -91,3 +116,4 @@ if __name__ == "__main__":
         'server.socket_port': 8081,
     })
     cherrypy.quickstart(connector)
+

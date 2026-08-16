@@ -1,12 +1,16 @@
+"""Phase Gate 01 Verification Test: Verifies shared package dependencies, dataclass models, and JSON round-trip serialization/deserialization."""
+
 import os
 import sys
 import subprocess
 
 def install_requirements():
+    """Install project dependencies from requirements.txt silently."""
     req_file = os.path.join(os.path.dirname(__file__), '..', '..', 'requirements.txt')
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"])
 
 def verify_phase_1():
+    """Verify shared module imports and dataclass JSON round-trip serialization fidelity."""
     try:
         install_requirements()
     except Exception as e:
@@ -21,7 +25,7 @@ def verify_phase_1():
         print(f"FAIL: Could not import shared: {e}")
         sys.exit(1)
 
-    # Test round trip
+    # Test round trip serialization
     try:
         original = shared.BadgePositionEvent(badge_id="b1", x=1.5, y=2.5)
         json_str = shared.to_json(original)
@@ -29,7 +33,7 @@ def verify_phase_1():
         
         assert original == restored, f"Mismatch: {original} != {restored}"
         
-        # Test another
+        # Test another event dataclass
         original_env = shared.EnvironmentEvent(temperature=22.5, humidity=45.0)
         json_env = shared.to_json(original_env)
         restored_env = shared.from_json(shared.EnvironmentEvent, json_env)
@@ -44,3 +48,4 @@ def verify_phase_1():
 
 if __name__ == '__main__':
     verify_phase_1()
+

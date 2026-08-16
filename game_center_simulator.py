@@ -1,3 +1,5 @@
+"""Multi-room game center simulation engine generating environment telemetry, player badge coordinates, puzzle prop triggers, and requesting analytics reports across 10 theme rooms."""
+
 import json
 import time
 import random
@@ -7,6 +9,7 @@ import os
 import sys
 from shared.mqtt import MQTTClient
 
+#: List of 10 supported theme room IDs in the game center.
 ROOMS = [
     "room_cyberpunk",
     "room_matrix",
@@ -20,6 +23,7 @@ ROOMS = [
     "room_arcade"
 ]
 
+#: Mapping of room IDs to strategy configuration names.
 STRATEGIES = {
     "room_cyberpunk": "cyberpunk",
     "room_matrix": "matrix",
@@ -33,15 +37,27 @@ STRATEGIES = {
     "room_arcade": "arcade"
 }
 
-def load_strategy(strat_name):
+def load_strategy(strat_name: str) -> dict:
+    """Load strategy JSON configuration for given strategy name from config directory.
+
+    Args:
+        strat_name (str): Name of strategy file.
+
+    Returns:
+        dict: Parsed strategy dictionary.
+    """
     filepath = f"config/strategy_{strat_name}.json"
     with open(filepath, "r") as f:
         return json.load(f)
 
 client = MQTTClient("game_center_simulator_master", broker="localhost")
 
-def environment_and_badge_publisher(stop_event):
-    """Publishes continuous high-frequency environment & player badge telemetry across all 10 rooms."""
+def environment_and_badge_publisher(stop_event: threading.Event):
+    """Publish continuous high-frequency environmental telemetry (temp, humidity, CO2, noise) and player badge telemetry (position, battery) across all 10 rooms.
+
+    Args:
+        stop_event (threading.Event): Thread stop signal event.
+    """
     print("🚀 Telemetry Publisher Thread started across all 10 game rooms...")
     while not stop_event.is_set():
         for i, room_id in enumerate(ROOMS):
@@ -79,16 +95,22 @@ def environment_and_badge_publisher(stop_event):
 
         time.sleep(0.5)
 
-def run_room_simulation(room_id, strat_name, badge_id):
-    """Simulates a complete escape room game session for a room."""
+def run_room_simulation(room_id: str, strat_name: str, badge_id: str):
+    """Simulate a complete escape room game session for a room by stepping through FSM transitions.
+
+    Args:
+        room_id (str): Target room ID.
+        strat_name (str): Strategy configuration name.
+        badge_id (str): Player badge ID.
+    """
     data = load_strategy(strat_name)
     print(f"🎮 [{room_id}] Starting Game: '{data.get('name')}'")
 
-    # Hot-swap config update
+    # Hot-swap config update publication
     client.publish(f"catalog/{room_id}/config-update", {"room_id": room_id, "version": data.get("version")}, qos=1, retain=True)
     time.sleep(0.5)
 
-    # Initial position
+    # Publish initial entrance position
     client.publish(f"room/{room_id}/badge/{badge_id}/position", {"badge_id": badge_id, "x": 0.5, "y": 0.5, "zone": "entrance"}, qos=0)
     time.sleep(0.5)
 
@@ -130,6 +152,7 @@ def run_room_simulation(room_id, strat_name, badge_id):
     time.sleep(0.5)
 
 def main():
+    """Main execution entry point initializing MQTT client, running parallel room simulations, and querying analytics reports."""
     print("=" * 70)
     print("🏢 MEGA IOT GAME CENTER - SIMULATION ENGINE")
     print("=" * 70)
@@ -175,7 +198,7 @@ def main():
 
     time.sleep(1)
 
-    # 1. Center Overview
+    # 1. Query Center Overview
     try:
         r = requests.get("http://localhost:8084/stats/game_center", timeout=5).json()
         print("\n🏛️ 1. GAME CENTER OVERVIEW:")
@@ -183,7 +206,7 @@ def main():
     except Exception as e:
         print("Failed to fetch Game Center overview", e)
 
-    # 2. Bottlenecks & Chokepoint Analysis
+    # 2. Query Bottlenecks & Chokepoint Analysis
     try:
         r = requests.get("http://localhost:8084/stats/bottlenecks", timeout=5).json()
         print("\n🔍 2. PUZZLE BOTTLENECK & CHOKEPOINT ANALYTICS:")
@@ -191,7 +214,7 @@ def main():
     except Exception as e:
         print("Failed to fetch Bottleneck analytics", e)
 
-    # 3. Safety & Physical Strain Index
+    # 3. Query Safety & Physical Strain Index
     try:
         r = requests.get("http://localhost:8084/stats/safety", timeout=5).json()
         print("\n❤️ 3. PLAYER SAFETY & COMFORT INDEX:")
@@ -199,7 +222,7 @@ def main():
     except Exception as e:
         print("Failed to fetch Safety index", e)
 
-    # 4. Hardware Maintenance Diagnostics
+    # 4. Query Hardware Maintenance Diagnostics
     try:
         r = requests.get("http://localhost:8084/stats/maintenance", timeout=5).json()
         print("\n🛠️ 4. HARDWARE MAINTENANCE DIAGNOSTICS:")
@@ -207,7 +230,7 @@ def main():
     except Exception as e:
         print("Failed to fetch Maintenance diagnostics", e)
 
-    # 5. Spatial Heatmap Sample
+    # 5. Query Spatial Heatmap Sample
     try:
         r = requests.get("http://localhost:8084/stats/heatmap/room_cyberpunk", timeout=5).json()
         print("\n🗺️ 5. PLAYER SPATIAL HEATMAP (sample: room_cyberpunk):")
@@ -221,3 +244,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

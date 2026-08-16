@@ -1,13 +1,17 @@
+"""Phase Gate 04 Verification Test: Validates MQTTClient LWT (Last Will and Testament) crash publication, automatic broker reconnection, and resubscription."""
+
 import os
 import sys
 import subprocess
 import time
 
 def install_requirements():
+    """Install project dependencies from requirements.txt silently."""
     req_file = os.path.join(os.path.dirname(__file__), '..', '..', 'requirements.txt')
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"])
 
 def verify_phase_4():
+    """Verify MQTTClient LWT message reception on crash and reconnection capability after broker restart."""
     install_requirements()
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
     
@@ -103,3 +107,4 @@ os._exit(1)
 
 if __name__ == '__main__':
     verify_phase_4()
+

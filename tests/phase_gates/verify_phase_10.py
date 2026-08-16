@@ -1,3 +1,5 @@
+"""Phase Gate 10 Verification Test: Validates TimeSeries Adapter service telemetry event ingestion and SQLite database persistence."""
+
 import os
 import sys
 import subprocess
@@ -7,6 +9,7 @@ import random
 import sqlite3
 
 def verify_phase_10():
+    """Verify timeseries_adapter service database initialization, batch ingestion queue, and SQLite records storage."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -63,3 +66,4 @@ def verify_phase_10():
 
 if __name__ == '__main__':
     verify_phase_10()
+

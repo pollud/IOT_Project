@@ -1,8 +1,11 @@
+"""Phase Gate 00 Verification Test: Validates architecture documentation and expected data model definitions in docs/mqtt_topics.md and docs/phase_gates.md."""
+
 import os
 import re
 import sys
 
 def verify_phase_0():
+    """Verify presence of documentation files and completeness of topic taxonomy and phase gate definitions."""
     docs_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'docs')
     mqtt_topics_path = os.path.join(docs_dir, 'mqtt_topics.md')
     phase_gates_path = os.path.join(docs_dir, 'phase_gates.md')
@@ -50,3 +53,4 @@ def verify_phase_0():
 
 if __name__ == '__main__':
     verify_phase_0()
+

@@ -1,3 +1,5 @@
+"""Phase Gate 14 Verification Test: Validates Node-RED dashboard container availability and manual unlock control trigger HTTP endpoint."""
+
 import os
 import sys
 import subprocess
@@ -6,6 +8,7 @@ import requests
 import json
 
 def verify_phase_14():
+    """Verify Node-RED service UI accessibility and manual room control HTTP route execution."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
@@ -77,3 +80,4 @@ def verify_phase_14():
 
 if __name__ == '__main__':
     verify_phase_14()
+

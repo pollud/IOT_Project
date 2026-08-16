@@ -1,6 +1,8 @@
-# jsonschema definition for room_strategy.json
+"""JSON Schema definitions and validation logic for Room Finite State Machine (FSM) strategies."""
+
 import jsonschema
 
+#: JSON schema defining the required structure for room strategy configurations.
 RoomStrategySchema = {
     "type": "object",
     "properties": {
@@ -40,5 +42,14 @@ RoomStrategySchema = {
     "required": ["room_id", "version", "initial_state", "states"]
 }
 
-def validate_strategy(strategy: dict):
+def validate_strategy(strategy: dict) -> None:
+    """Validate a room strategy dictionary against the RoomStrategySchema.
+
+    Args:
+        strategy (dict): Room strategy configuration dictionary.
+
+    Raises:
+        jsonschema.exceptions.ValidationError: If strategy fails schema validation.
+    """
     jsonschema.validate(instance=strategy, schema=RoomStrategySchema)
+

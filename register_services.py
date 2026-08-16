@@ -1,7 +1,11 @@
+"""Script for populating the Game Catalog with all system microservices and IoT devices."""
+
 import requests
 
+#: Target URL for Catalog registration endpoint.
 catalog_url = "http://localhost:8080/register"
 
+#: Microservices to register with the Catalog.
 services = [
     {"type": "service", "name": "room_control", "description": "Room FSM Controller"},
     {"type": "service", "name": "timeseries_adapter", "description": "Telemetry Persistence DB"},
@@ -12,6 +16,7 @@ services = [
     {"type": "service", "name": "web_dashboard", "description": "Game Master Command Center Web UI", "endpoint": "http://web_dashboard:8087"}
 ]
 
+#: IoT Devices and Simulators to register with the Catalog.
 devices = [
     {"type": "device", "device_id": "room_room1", "room_id": "room1", "description": "Room 1 Env Sensors"},
     {"type": "device", "device_id": "room_room2", "room_id": "room2", "description": "Room 2 Env Sensors"},
@@ -21,10 +26,13 @@ devices = [
     {"type": "device", "device_id": "prop_prop2", "room_id": "room2", "description": "Prop Simulator 2"}
 ]
 
+# Register microservices via POST request to Catalog /register
 for s in services:
     requests.post(catalog_url, json=s)
-    
+
+# Register IoT devices via POST request to Catalog /register
 for d in devices:
     requests.post(catalog_url, json=d)
 
 print("Registered everything!")
+

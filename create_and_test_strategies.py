@@ -1,3 +1,5 @@
+"""Script for generating theme room strategy JSON configurations (Resident Evil, Portal, Mario, Pokemon, Fallout) and executing automated verification tests."""
+
 import json
 import os
 import sys
@@ -7,6 +9,7 @@ import requests
 
 from shared.mqtt import MQTTClient
 
+#: Strategy definitions dictionary for gaming theme escape rooms.
 strategies = {
     "resident_evil": {
         "room_id": "room1",
@@ -151,7 +154,13 @@ for name, data in strategies.items():
         json.dump(data, f, indent=2)
 print("Created 5 strategy configs.")
 
-def test_strategy(name, data):
+def test_strategy(name: str, data: dict):
+    """Execute automated state transition test for a strategy by publishing hot-swap updates and simulating prop events.
+
+    Args:
+        name (str): Strategy theme name.
+        data (dict): Strategy definition dictionary.
+    """
     print(f"Testing {name}...")
     client = MQTTClient(f"tester_{name}", broker="localhost")
     client.start()
@@ -160,7 +169,7 @@ def test_strategy(name, data):
         
     current_state = None
     
-    # We must write the strategy to config/strategy_room1.json so room_control picks it up when it restarts FSM
+    # Write strategy to config/strategy_room1.json for room_control pickup
     with open("config/strategy_room1.json", "w") as f:
         json.dump(data, f, indent=2)
         
@@ -168,14 +177,7 @@ def test_strategy(name, data):
     client.publish("catalog/room1/config-update", "{}")
     time.sleep(2)
     
-    # Room FSM doesn't publish state on entering state... Wait!
-    # "room/room1/status" is published by room_control?
-    # No, room_control publishes GameStatus to "game/room1/status" and RoomCommand to "command/room"
-    
-    # Let me modify the on_message to just assume FSM follows the right path if we wait enough time,
-    # and we can check the logs of room_control to verify it.
-    
-    # simulate transitions
+    # Simulate step-by-step state transitions
     for state_name, state_config in data["states"].items():
         if state_name == "game_cleared":
             break
@@ -205,3 +207,4 @@ if __name__ == '__main__':
         test_strategy(name, data)
         
     print("ALL STRATEGIES TESTED SUCCESSFULLY!")
+

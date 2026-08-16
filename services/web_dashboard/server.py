@@ -1,3 +1,5 @@
+"""Web Dashboard backend server bridging MQTT telemetry and REST APIs to the frontend via Server-Sent Events (SSE) and HTTP endpoints."""
+
 import cherrypy
 import os
 import time
@@ -7,6 +9,7 @@ import requests
 import queue
 from shared.mqtt import MQTTClient
 
+#: Set of known room IDs monitored by the web dashboard.
 KNOWN_ROOMS = {
     "room_cyberpunk",
     "room_matrix",
@@ -23,7 +26,10 @@ KNOWN_ROOMS = {
 }
 
 class WebDashboardAPI:
+    """Backend controller bridging live MQTT events to frontend web clients via Server-Sent Events (SSE) and handling command dispatch."""
+
     def __init__(self):
+        """Initialize WebDashboardAPI, setup MQTT connection, and launch subscription thread."""
         broker = os.getenv("MQTT_BROKER", "mosquitto")
         self.mqtt = MQTTClient(
             client_id="web_dashboard",
@@ -41,6 +47,7 @@ class WebDashboardAPI:
         t.start()
         
     def run_mqtt(self):
+        """Background thread connecting to MQTT broker and subscribing to status, telemetry, alert, and presence topics."""
         connected = False
         while not connected:
             try:
@@ -60,7 +67,13 @@ class WebDashboardAPI:
         self.mqtt.subscribe("system/alerts")
         self.mqtt.subscribe("status/+")
         
-    def on_message(self, topic, payload):
+    def on_message(self, topic: str, payload):
+        """Handle incoming MQTT messages, update local state cache, and broadcast events to all connected SSE streaming queues.
+
+        Args:
+            topic (str): MQTT topic string.
+            payload (Any): Message payload string or dict.
+        """
         try:
             data = json.loads(payload)
             if topic.startswith("status/"):
@@ -89,6 +102,7 @@ class WebDashboardAPI:
 
     @cherrypy.expose
     def stream(self):
+        """GET /api/stream endpoint delivering live real-time events to frontend web clients via Server-Sent Events (SSE)."""
         cherrypy.response.headers['Content-Type'] = 'text/event-stream'
         cherrypy.response.headers['Cache-Control'] = 'no-cache'
         cherrypy.response.headers['Connection'] = 'keep-alive'
@@ -116,17 +130,20 @@ class WebDashboardAPI:
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def status(self):
+        """GET /api/status endpoint returning cached status dict for all monitored rooms."""
         return self.cache["rooms"]
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def presence(self):
+        """GET /api/presence endpoint returning online presence cache for connected services/devices."""
         return self.cache["presence"]
         
     @cherrypy.expose
     @cherrypy.tools.json_out()
     @cherrypy.tools.json_in()
     def command(self):
+        """POST /api/command endpoint for sending operator commands (unlock, reset, trigger_prop, play_audio, set_lights) to rooms via MQTT."""
         data = cherrypy.request.json
         room_id = data.get("room_id")
         cmd = data.get("command")
@@ -171,6 +188,7 @@ class WebDashboardAPI:
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def stats(self, *args, **kwargs):
+        """GET /api/stats/* endpoint proxying requests to the backend Analytics microservice."""
         path = "/".join(args)
         analytics_url = f"http://analytics:8084/stats/{path}"
         try:
@@ -187,6 +205,7 @@ class WebDashboardAPI:
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def strategy(self, room_id):
+        """GET /api/strategy/{room_id} endpoint proxying requests to the backend Catalog microservice."""
         try:
             r = requests.get(f"http://catalog:8080/config/{room_id}", timeout=5)
             if r.status_code == 200:
@@ -239,3 +258,4 @@ if __name__ == "__main__":
     
     cherrypy.engine.start()
     cherrypy.engine.block()
+

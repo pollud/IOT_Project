@@ -1,3 +1,5 @@
+"""Shared package containing common models, MQTT client utilities, topic schemas, and configuration helpers."""
+
 from .models import (
     BadgePositionEvent, BadgeSafetyEvent, EnvironmentEvent, 
     BatteryEvent, PropEvent, RoomCommand, AlertEvent, 
@@ -10,3 +12,4 @@ from .constants import *
 from .fsm_schema import RoomStrategySchema, validate_strategy
 from .events import *
 from .mqtt import MQTTClient
+

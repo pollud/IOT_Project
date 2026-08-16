@@ -1,3 +1,5 @@
+"""Full end-to-end integration test runner executing multi-strategy simulations and verifying Analytics service reporting."""
+
 import json
 import time
 import random
@@ -6,15 +8,25 @@ import requests
 from shared.mqtt import MQTTClient
 import os
 
+#: List of gaming strategies to execute in simulation suite.
 strategies = ["resident_evil", "portal", "mario", "pokemon", "fallout"]
 
-def load_strategy(name):
+def load_strategy(name: str) -> dict:
+    """Load strategy JSON definition from config directory.
+
+    Args:
+        name (str): Strategy name.
+
+    Returns:
+        dict: Parsed strategy dictionary.
+    """
     with open(f"config/strategy_{name}.json", "r") as f:
         return json.loads(f.read())
 
 client = MQTTClient("simulator_master", broker="localhost")
 
 def environment_publisher():
+    """Background thread loop broadcasting periodic environmental telemetry (temp, humidity) for room1 and room2."""
     t = threading.currentThread()
     while getattr(t, "do_run", True):
         temp = 20.0 + random.uniform(-2, 2)
@@ -23,7 +35,14 @@ def environment_publisher():
         client.publish("room/room2/environment", {"temperature": temp + 2, "humidity": hum + 5})
         time.sleep(1)
 
-def run_simulation(room_id, strategy_name, badge_id):
+def run_simulation(room_id: str, strategy_name: str, badge_id: str):
+    """Simulate a complete game session for room_id using strategy_name and badge_id.
+
+    Args:
+        room_id (str): Target room ID ("room1", "room2").
+        strategy_name (str): Name of strategy to execute.
+        badge_id (str): Player badge identifier.
+    """
     print(f"Starting simulation for {room_id} with strategy {strategy_name}")
     data = load_strategy(strategy_name)
     data["room_id"] = room_id
@@ -102,3 +121,4 @@ if __name__ == "__main__":
         print(json.dumps(r2.json(), indent=2))
     except Exception as e:
         print("Failed to get room2 stats", e)
+

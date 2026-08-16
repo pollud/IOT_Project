@@ -1,3 +1,5 @@
+"""Room controller service managing room FSM lifecycle, MQTT topics, and strategy updates."""
+
 import os
 import time
 import json
@@ -6,6 +8,7 @@ from shared.topics import build_topic
 from fsm import RoomFSM
 from loader import load_strategy_from_file
 
+#: List of all supported room IDs in the game center.
 ALL_KNOWN_ROOMS = [
     "room1",
     "room2",
@@ -22,7 +25,14 @@ ALL_KNOWN_ROOMS = [
 ]
 
 class RoomController:
-    def __init__(self, room_id):
+    """Controller connecting MQTT topic subscriptions for a room to its underlying RoomFSM engine."""
+
+    def __init__(self, room_id: str):
+        """Initialize RoomController for room_id, setup MQTT client, load strategy, and subscribe to topics.
+
+        Args:
+            room_id (str): Target room identifier.
+        """
         self.room_id = room_id
         
         broker = os.getenv("MQTT_BROKER", "mosquitto")
@@ -60,7 +70,13 @@ class RoomController:
         self.mqtt.subscribe(f"command/room/{self.room_id}")
         self.mqtt.subscribe(f"room/{self.room_id}/status")
         
-    def on_message(self, topic, payload):
+    def on_message(self, topic: str, payload):
+        """Handle incoming MQTT messages for state recovery, room commands, prop interactions, and config updates.
+
+        Args:
+            topic (str): MQTT topic string.
+            payload (str or dict): Message payload.
+        """
         try:
             data = json.loads(payload) if isinstance(payload, str) or isinstance(payload, bytes) else payload
         except Exception:
@@ -115,3 +131,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         for ctrl in controllers:
             ctrl.mqtt.stop()
+
