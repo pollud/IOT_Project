@@ -101,18 +101,6 @@ services:
     volumes:
       - ./data:/app/data
 
-  telegram_bot:
-    build:
-      context: .
-      dockerfile: services/telegram_bot/Dockerfile
-    ports:
-      - "8086:8086"
-    depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
-      - TELEGRAM_TOKEN=8959634259:AAG4IGW7z3jCx8DFHQak1IRBEgAHt45pj0E
-
   web_dashboard:
     build:
       context: .
@@ -123,15 +111,6 @@ services:
       - mosquitto
     environment:
       - MQTT_BROKER=mosquitto
-
-  node_red:
-    build:
-      context: ./services/node_red
-      dockerfile: Dockerfile
-    ports:
-      - "1880:1880"
-    depends_on:
-      - mosquitto
 
   room_connector_2:
     build:

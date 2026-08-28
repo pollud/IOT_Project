@@ -10,9 +10,7 @@ services = [
     {"type": "service", "name": "room_control", "description": "Room FSM Controller"},
     {"type": "service", "name": "timeseries_adapter", "description": "Telemetry Persistence DB"},
     {"type": "service", "name": "analytics", "description": "Analytics Engine", "endpoint": "http://analytics:8084"},
-    {"type": "service", "name": "telegram_bot", "description": "Telegram Alerting Bot"},
     {"type": "service", "name": "safety_monitor", "description": "Safety Monitor Rules Engine"},
-    {"type": "service", "name": "thingspeak_adapter", "description": "ThingSpeak Sync", "endpoint": "http://thingspeak_adapter:8085"},
     {"type": "service", "name": "web_dashboard", "description": "Game Master Command Center Web UI", "endpoint": "http://web_dashboard:8087"}
 ]
 

@@ -1,20 +1,18 @@
 # Architecture Overview
 
 ## Objective
-Define the architecture for the IoT escape-room platform. The platform is based on CherryPy + Python, MQTT, one Raspberry Pi-backed Room Connector, simulated Badge/Prop connectors, a Room Control FSM, and an analytics pipeline through a TimeSeriesDB Adapter to ThingSpeak.
+Define the architecture for the IoT escape-room platform. The platform is built around an asynchronous MQTT event bus, CherryPy microservices, embedded SQLite timeseries storage, autonomous Room Control FSMs, a safety supervisor, and a unified Web Dashboard acting as the **Game Master Command Center**.
 
 ## Component Overview
-- **Game Catalog**: Single source of truth for rooms, devices, configurations. Provides REST APIs and MQTT config updates.
-- **Room Connector**: Pi service handling environment sensors and actuators via REST and MQTT.
-- **Badge Connector (Simulator)**: Simulates player positions, falls, and battery via MQTT.
-- **Prop Connector (Simulator)**: Simulates prop interactions via MQTT.
-- **Safety Monitor**: Evaluates environment and badge safety. Generates alerts and emergency overrides.
-- **Room Control FSM**: State machine to manage game progress, execute actions, and handle time-based events.
-- **TimeSeriesDB Adapter**: Persists all telemetry. **Decision**: using **SQLite** as the storage backend (no InfluxDB).
-- **Analytics Engine**: Computes analytics and player paths when a session ends.
-- **ThingSpeak Adapter**: Pushes filtered aggregated analytics to ThingSpeak, and serves a `/history` API for local dashboards to prevent direct ThingSpeak polling.
-- **Telegram Bot**: Operator bot for manual control and status.
-- **Node-RED**: Local dashboard for monitoring and manual control.
+- **Game Catalog (`:8080`)**: Single source of truth for rooms, devices, configurations, and dynamic discovery. Provides REST APIs and MQTT config update broadcasts.
+- **Room Connector (`:8081`)**: Interfacing service handling room environment telemetry (temperature, humidity) and electronic actuator relays (mag-locks, lights, sound).
+- **Badge Connector (`:8082`)**: Wearable telemetry service tracking player spatial coordinates, battery levels, and fall detection.
+- **Prop Connector (`:8083`)**: Interactive puzzle prop service handling player inputs (buttons, RFID sensors, keypads).
+- **Room Control FSM**: Decentralized, autonomous state machine managing game progress, puzzle progression, and time-based schedules.
+- **Safety Monitor**: Independent, high-priority safety supervisor triggering emergency mag-lock overrides and alarms.
+- **TimeSeriesDB Adapter**: High-throughput SQLite persistence layer with in-memory batch writing and automated telemetry retention pruning.
+- **Analytics Engine (`:8084`)**: Post-game analytics engine computing solve durations, puzzle bottlenecks, safety scores, and spatial heatmaps.
+- **Web Dashboard (`:8087`)**: Single unified **Game Master Command Center** providing real-time Server-Sent Events (SSE) streaming, live room matrices, actuator controls, manual puzzle triggers, alert banners, and analytics visualization.
 
 ## Directory Structure
 ```
@@ -22,7 +20,6 @@ project/
   docs/
   shared/
   config/
-  docker/
   services/
     catalog/
     room_connector/
@@ -32,8 +29,7 @@ project/
     safety_monitor/
     timeseries_adapter/
     analytics/
-    thingspeak_adapter/
-    telegram_bot/
+    web_dashboard/
   simulators/
   tests/
     phase_gates/
@@ -44,5 +40,5 @@ project/
 ```
 
 ## Data Storage
-- TimeSeriesDB will use **SQLite** as the default backend. No external databases are required.
-- Configuration is loaded from `config/` directory.
+- TimeSeriesDB uses **SQLite** (`data/events.db`) with composite indexes on `(topic, timestamp)` and batch insert optimizations (`executemany`).
+- Strategy rulesets and service registrations are persisted in `config/`.

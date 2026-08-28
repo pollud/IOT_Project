@@ -5,12 +5,13 @@
 ### `system/alerts`
 - **Description**: System-wide safety or error alerts.
 - **Publisher**: `safety_monitor`
-- **Subscriber**: `node_red`, `telegram_bot`
+- **Subscriber**: `web_dashboard`, `timeseries_adapter`
 - **Payload**:
   ```json
   {
-    "type": "alert_type",
-    "message": "Human-readable message"
+    "alert_type": "fall",
+    "message": "Fall detected for b1",
+    "source": "room1"
   }
   ```
 
@@ -19,7 +20,7 @@
 ### `room/<room_id>/environment`
 - **Description**: Environment telemetry (temperature, humidity).
 - **Publisher**: `room_connector`
-- **Subscriber**: `safety_monitor`, `timeseries_adapter`, `node_red`
+- **Subscriber**: `safety_monitor`, `timeseries_adapter`, `web_dashboard`
 - **Payload**:
   ```json
   {
@@ -31,29 +32,33 @@
 ### `room/<room_id>/badge/<badge_id>/position`
 - **Description**: Player location tracking.
 - **Publisher**: `badge_connector`
-- **Subscriber**: `room_control`
+- **Subscriber**: `timeseries_adapter`, `web_dashboard`
 - **Payload**:
   ```json
   {
-    "zone": "zone_name"
+    "badge_id": "b1",
+    "x": 3.5,
+    "y": 7.2
   }
   ```
 
 ### `room/<room_id>/prop/<prop_id>/event`
 - **Description**: Interaction event with a physical prop.
-- **Publisher**: `prop_connector`
-- **Subscriber**: `room_control`
+- **Publisher**: `prop_connector`, `web_dashboard`
+- **Subscriber**: `room_control`, `timeseries_adapter`
 - **Payload**:
   ```json
   {
-    "action": "action_name"
+    "prop_id": "prop1",
+    "interaction_type": "button",
+    "value": "pressed"
   }
   ```
 
 ### `room/<room_id>/status`
 - **Description**: Current state of the Room Control FSM.
 - **Publisher**: `room_control`
-- **Subscriber**: `telegram_bot`, `timeseries_adapter`
+- **Subscriber**: `web_dashboard`, `timeseries_adapter`
 - **Payload**:
   ```json
   {
@@ -64,9 +69,9 @@
 
 ## Command Topics
 
-### `command/room`
+### `command/room/<room_id>`
 - **Description**: Commands sent to a specific room to manually override state or hardware.
-- **Publisher**: `node_red`, `telegram_bot`
+- **Publisher**: `web_dashboard`
 - **Subscriber**: `room_control`, `room_connector`
 - **Payload**:
   ```json
