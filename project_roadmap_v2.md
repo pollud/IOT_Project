@@ -215,50 +215,57 @@ Verify: kill and restart Analytics Engine mid-session, then trigger `session/end
 
 ---
 
-## Phase 12 — ThingSpeak Adapter
+## Phase 12 — Analytics REST Engine
+
+Repository: `services/analytics`
 
 Tasks:
-- subscribe: `environment`, `analytics`
-- REST: upload to ThingSpeak
-- REST: provide `GET /history` for Node-RED
+- REST API: provide `/stats/room`, `/stats/prop`, `/stats/environment`, `/stats/history`, `/stats/bottlenecks`, `/stats/safety`, `/stats/game_center`, `/stats/heatmap`
+- Query SQLite `events.db` directly to aggregate solve metrics and spatial heatmaps
 
-Verify: confirm Node-RED's dashboard can render history via `GET /history` with Node-RED's own outbound internet access disabled — proving it never talks to ThingSpeak.com directly.
-
----
-
-## Phase 13 — Telegram Bot
-
-Commands: `/status`, `/open`, `/reset`, `/help`
-Subscribe: alerts, room/game status (cached locally so `/status` replies instantly)
-Publish: manual commands
-
-Verify: `/status` replies in under ~1s (proving it answers from cache, not a live round trip); `/open` results in the correct manual-command message on the bus.
+Verify: assert all `/stats/*` endpoints return valid data structures with accurate math.
 
 ---
 
-## Phase 14 — Node-RED
+## Phase 13 — Web Dashboard Command Gateway
 
-Dashboard widgets: player position, temperature, humidity, game phase, alerts, manual controls.
+Repository: `services/web_dashboard`
 
-Verify: every widget updates within its expected interval during a live simulated session; manual controls actually reach Room Control Logic.
+Tasks:
+- REST API: `POST /api/command` dispatcher
+- Publish manual actuation commands to MQTT (`unlockDoor`, `reset`, `trigger_prop`, `set_lights`, `play_audio`)
+- Maintain sub-second command delivery latency
+
+Verify: `/api/command` returns in under ~1s and the corresponding command arrives on the MQTT bus.
 
 ---
 
-## Phase 15 — End-to-end integration
+## Phase 14 — Web Dashboard Real-Time SSE Stream
 
-Not a strict pipeline — the real system is parallel (badges and props publish continuously and independently) and dual-triggered (telemetry flows constantly; analytics fires once, at session end). Test it as a scenario:
+Repository: `services/web_dashboard`
 
-- run 2+ rooms concurrently
-- badges move and props get interacted with throughout, in both rooms
-- confirm Room Control's FSM transitions correctly in each room, independently
-- confirm Safety Monitor's emergency path works without depending on Room Control
-- end one session; confirm the other room is unaffected
-- confirm TimeSeriesDB has the full history, correctly separated by room
-- confirm Analytics computes correct per-room metrics
-- confirm ThingSpeak receives the push and Node-RED shows it
-- confirm no cross-room data ever appears in the wrong room's dashboard
+Tasks:
+- Server-Sent Events (SSE): `GET /api/stream`
+- Bridge MQTT telemetry (`room/+/environment`, `room/+/status`, `system/alerts`, `status/+`) directly to connected frontend clients
+- Host responsive Web UI Single Page Application on `:8087`
 
-Verify: automate the above as one script — it's your strongest evidence for the defense.
+Verify: browser client connects to `/api/stream` and receives live events without continuous HTTP polling.
+
+---
+
+## Phase 15 — End-to-end multi-room integration
+
+Parallel multi-room integration scenario:
+- Run 2+ rooms concurrently
+- Badges move and props get interacted with throughout, in both rooms
+- Confirm Room Control's FSM transitions correctly in each room, independently
+- Confirm Safety Monitor's emergency path works without depending on Room Control
+- End one session; confirm the other room is unaffected
+- Confirm TimeSeriesDB has the full history, correctly separated by room
+- Confirm Analytics computes correct per-room metrics
+- Confirm Web Dashboard displays real-time state and controls both rooms seamlessly
+
+Verify: automate the multi-room simulation as one script (`game_center_simulator.py` / `verify_phase_15.py`).
 
 ---
 
@@ -266,7 +273,7 @@ Verify: automate the above as one script — it's your strongest evidence for th
 
 Unit: FSM, Catalog, Analytics, shared models.
 Integration: MQTT, REST, startup, shutdown, recovery.
-Stress: pick a load that matches your actual demo (N rooms × M badges × expected session length), not just "10000 messages" — justify the number in your report.
+Stress: Multi-room high-frequency telemetry load testing.
 
 ---
 
@@ -286,11 +293,10 @@ Stress: pick a load that matches your actual demo (N rooms × M badges × expect
 | 10 | Room Control FSM | Demo room playable; config hot-swap verified |
 | 11 | TimeSeriesDB Adapter | History queryable, room-separated |
 | 12 | Analytics Engine | Survives a restart mid-session |
-| 13 | ThingSpeak Adapter | Node-RED never touches ThingSpeak.com directly |
-| 14 | Telegram Bot | Instant `/status`, working manual commands |
-| 15 | Node-RED Dashboard | All widgets live |
-| 16 | Multi-room integration | No cross-room leakage |
-| 17 | Testing & hardening | Justified stress numbers, full suite green |
+| 13 | Web Command Gateway | Instant `/api/command`, working manual commands |
+| 14 | Web Dashboard SSE Stream | Real-time events delivered to UI |
+| 15 | Multi-room integration | No cross-room leakage |
+| 16 | Testing & hardening | Justified stress numbers, full suite green |
 
 ---
 
@@ -307,7 +313,6 @@ project/
     phase_gates.md
   shared/
   config/
-  docker/
   services/
     catalog/
     room_connector/
@@ -317,11 +322,9 @@ project/
     safety_monitor/
     timeseries_adapter/
     analytics/
-    thingspeak_adapter/
-    telegram_bot/
-  simulators/
+    web_dashboard/
   tests/
-    phase_gates/       # one script per phase, matching phase_gates.md
+    phase_gates/
     integration/
     stress/
   docker-compose.yml

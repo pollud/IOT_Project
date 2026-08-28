@@ -11,10 +11,10 @@
 | Phase 7 | `python tests/phase_gates/verify_phase_07.py` | Prop connector emits interaction, health, heartbeat topics |
 | Phase 8 | `python tests/phase_gates/verify_phase_08.py` | Synthetic fall event triggers emergency unlock and system alerts |
 | Phase 9 | `python tests/phase_gates/verify_phase_09.py` | FSM demo strategy runs to completion; hot-swaps config mid-run |
-| Phase 10 | `python tests/phase_gates/verify_phase_10.py` | TimeSeriesDB persists telemetry and retrieves via `/events` REST API |
+| Phase 10 | `python tests/phase_gates/verify_phase_10.py` | TimeSeriesDB persists telemetry in SQLite with batch write queue |
 | Phase 11 | `python tests/phase_gates/verify_phase_11.py` | Analytics Engine generates consistent output across restarts |
-| Phase 12 | `python tests/phase_gates/verify_phase_12.py` | ThingSpeak Adapter serves local `/history` without talking to internet |
-| Phase 13 | `python tests/phase_gates/verify_phase_13.py` | Telegram Bot responds in <1s with status; manual commands hit bus |
-| Phase 14 | `python tests/phase_gates/verify_phase_14.py` | Node-RED dashboard widget refresh logic |
-| Phase 15 | `python tests/phase_gates/verify_phase_15.py` | End-to-end integration: 2 rooms concurrently with no data leakage |
+| Phase 12 | `python tests/phase_gates/verify_phase_12.py` | Analytics REST endpoints (/stats/room, /stats/history, /stats/safety) |
+| Phase 13 | `python tests/phase_gates/verify_phase_13.py` | Web Dashboard manual command gateway (/api/command) and latency |
+| Phase 14 | `python tests/phase_gates/verify_phase_14.py` | Web Dashboard Server-Sent Events (SSE) real-time stream (/api/stream) |
+| Phase 15 | `python tests/phase_gates/verify_phase_15.py` | End-to-end multi-room simulation across concurrent rooms |
 | Phase 16 | `python tests/phase_gates/verify_phase_16.py` | Full test suite execution and stress metrics validation |

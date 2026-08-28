@@ -1,40 +1,6 @@
-I will list the microservices available in `services/` to inspect the project structure and communication paradigms currently implemented.
+# System Architecture & IoT Engineering Improvements
 
-Listed directory services
-
-I will examine `config/catalog.json` to understand how devices and services are cataloged.
-
-Viewed catalog.json:1-84
-
-I will list the files in `shared/` to inspect common modules.
-
-Listed directory shared
-
-I will view `shared/mqtt.py` to see the MQTT client implementation details.
-
-Viewed mqtt.py:1-100
-
-I will view `project_roadmap_v2.md` to see the design scope, requirements, and architecture guidelines.
-
-Viewed project_roadmap_v2.md:1-332
-
-I will inspect `services/timeseries_adapter` to analyze database storage, querying efficiency, and communication patterns.
-
-Viewed adapter.py:1-74
-
-I will view `services/catalog/catalog_server.py` to check the catalog service implementation.
-
-I will list the files in `services/catalog/` to find the catalog service entry file.
-
-Listed directory catalog
-
-I will view `services/catalog/catalog.py` to inspect the catalog implementation.
-
-Viewed catalog.py:1-149
-
-To make your professor thoroughly impressed with the project's **efficiency**, **scalability**, and **mastery of IoT communication paradigms**, you should frame your improvements around real-world distributed system challenges. 
-
-Below is a curated, highly technical list of improvements categorized by **Communication Paradigms**, **Scalability Architecture**, **Performance & Efficiency Optimizations**, and **Resilience**.
+Below is a curated, highly technical list of architectural enhancements categorized by **Communication Paradigms**, **Scalability Architecture**, **Performance & Efficiency Optimizations**, and **Resilience**.
 
 ---
 

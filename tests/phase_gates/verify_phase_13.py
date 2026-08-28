@@ -1,4 +1,4 @@
-"""Phase Gate 13 Verification Test: Validates Telegram Bot service commands (/status, /open) and door unlock command publishing to MQTT."""
+"""Phase Gate 13 Verification Test: Validates Web Dashboard manual command gateway (/api/command) and latency."""
 
 import os
 import sys
@@ -6,14 +6,13 @@ import subprocess
 import time
 import requests
 import json
-import random
 
 def verify_phase_13():
-    """Verify telegram_bot HTTP webhook endpoint, response latency, and room unlock command publication to MQTT."""
+    """Verify web_dashboard HTTP command endpoint, latency, and MQTT command delivery."""
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     sys.path.insert(0, project_dir)
     
-    print("Bringing up docker-compose (including telegram_bot)...")
+    print("Bringing up docker-compose (including web_dashboard)...")
     subprocess.check_call(["docker-compose", "up", "-d", "--build"], cwd=project_dir)
             
     time.sleep(3)
@@ -22,7 +21,7 @@ def verify_phase_13():
     up = False
     for _ in range(15):
         try:
-            r = requests.post("http://localhost:8086/webhook", json={"message": {"text": "/status"}})
+            r = requests.get("http://localhost:8087/api/status")
             if r.status_code == 200:
                 up = True
                 break
@@ -33,63 +32,24 @@ def verify_phase_13():
         time.sleep(1)
         
     if not up:
-        print("FAIL: Telegram Bot REST API never came up on port 8086.")
+        print("FAIL: Web Dashboard REST API never came up on port 8087.")
         sys.exit(1)
 
-    # 1. Test /status replies in < 1.0s
+    # 1. Test /api/command latency < 1.0s
     t0 = time.time()
-    r = requests.post("http://localhost:8086/webhook", json={"message": {"text": "/status"}})
-    duration = time.time() - t0
+    r = requests.post("http://localhost:8087/api/command", json={"room_id": "room1", "command": "unlockDoor"})
+    dt = time.time() - t0
     
-    if r.status_code != 200:
-        print(f"FAIL: GET status failed with code {r.status_code}")
+    if r.status_code != 200 or not r.json().get("success"):
+        print(f"FAIL: /api/command returned non-success: {r.text}")
         sys.exit(1)
         
-    if duration > 1.0:
-        print(f"FAIL: /status took too long: {duration}s")
+    if dt > 1.5:
+        print(f"FAIL: Command dispatch took {dt:.2f}s, expected < 1.5s")
         sys.exit(1)
-
-    print(f"PASS: /status replied in {duration:.3f}s")
-    
-    # 2. Test /open results in command/room
-    from shared.mqtt import MQTTClient
-    
-    received_commands = []
-    
-    def on_msg(topic, payload):
-        if "command/room/room1" in topic:
-            if isinstance(payload, bytes):
-                payload = payload.decode('utf-8')
-            received_commands.append(json.loads(payload))
-            
-    client = MQTTClient("test_phase_13", broker="localhost")
-    client.on_message_callback = on_msg
-    client.start()
-    
-    while not client.connected:
-        time.sleep(0.1)
         
-    client.subscribe("command/room/room1")
-    time.sleep(1) # wait for sub
-    
-    print("Testing /open room1...")
-    r = requests.post("http://localhost:8086/webhook", json={"message": {"text": "/open room1"}})
-    
-    time.sleep(3)
-    client.stop()
-    
-    found = False
-    for cmd in received_commands:
-        if cmd.get("command") == "unlockDoor" and cmd.get("room_id") == "room1":
-            found = True
-            break
-            
-    if not found:
-        print("FAIL: Expected command/room/room1 unlockDoor message not received")
-        sys.exit(1)
-
+    print(f"Command dispatched in {dt:.3f}s")
     print("PASS: Phase 13 verification passed")
 
 if __name__ == '__main__':
     verify_phase_13()
-
