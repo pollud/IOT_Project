@@ -1,16 +1,18 @@
 """Phase Gate 15 Verification Test: Validates multi-room isolation and independent FSM state tracking across parallel escape room sessions."""
 
-import os
-import sys
-import subprocess
-import time
-import requests
 import json
+import os
+import subprocess
+import sys
+import time
+
+import requests
 
 project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_dir)
 
-from shared.mqtt import MQTTClient
+from shared.mqtt import MQTTClient  # noqa: E402
+
 
 def verify_phase_15():
     """Verify multi-room system execution, state isolation between room1 and room2, and independent stats generation."""

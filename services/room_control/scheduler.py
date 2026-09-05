@@ -1,43 +1,36 @@
-"""State transition timer scheduler for timed FSM transitions."""
+"""Thread-safe timer scheduler for FSM time transitions."""
+
+from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+
 
 class Scheduler:
-    """Manages thread-safe timers for executing automatic time-based state transitions in RoomFSM."""
+    def __init__(self) -> None:
+        self._timers: dict[str, threading.Timer] = {}
+        self._lock = threading.RLock()
 
-    def __init__(self, fsm):
-        """Initialize Scheduler instance.
+    def schedule(self, key: str, duration: float, callback: Callable[[], None]) -> None:
+        if duration <= 0:
+            raise ValueError("Timer duration must be positive")
+        with self._lock:
+            previous = self._timers.pop(key, None)
+            if previous:
+                previous.cancel()
+            timer = threading.Timer(duration, self._run, args=(key, callback))
+            timer.daemon = True
+            self._timers[key] = timer
+            timer.start()
 
-        Args:
-            fsm: Reference to the parent RoomFSM instance.
-        """
-        self.fsm = fsm
-        self.timers = {}
-        self.lock = threading.Lock()
-        
-    def schedule(self, state_name: str, duration: float, target_state: str):
-        """Schedule a timer to trigger a state transition from state_name to target_state after duration seconds.
+    def _run(self, key: str, callback: Callable[[], None]) -> None:
+        with self._lock:
+            self._timers.pop(key, None)
+        callback()
 
-        Args:
-            state_name (str): Current source state name.
-            duration (float): Delay in seconds before triggering transition.
-            target_state (str): Target state name upon timer expiration.
-        """
-        with self.lock:
-            if state_name in self.timers:
-                self.timers[state_name].cancel()
-                
-            def on_timeout():
-                self.fsm.time_transition(state_name, target_state)
-                
-            t = threading.Timer(duration, on_timeout)
-            self.timers[state_name] = t
-            t.start()
-            
-    def cancel_all(self):
-        """Cancel and clear all active scheduled state transition timers."""
-        with self.lock:
-            for t in self.timers.values():
-                t.cancel()
-            self.timers.clear()
+    def cancel_all(self) -> None:
+        with self._lock:
+            for timer in self._timers.values():
+                timer.cancel()
+            self._timers.clear()
 

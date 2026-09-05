@@ -1,8 +1,11 @@
 {
-  "name": "web_dashboard",
-  "version": "0.0.0",
+  "name": "escape-room-web-dashboard",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

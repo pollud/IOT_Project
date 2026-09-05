@@ -1,11 +1,13 @@
 """Phase Gate 07 Verification Test: Validates Prop Connector interaction triggers (button, rfid, capacitive) and background health/heartbeat publishing."""
 
-import os
-import sys
-import subprocess
-import time
-import requests
 import json
+import os
+import subprocess
+import sys
+import time
+
+import requests
+
 
 def verify_phase_7():
     """Verify prop_connector HTTP trigger endpoints and MQTT interaction message output."""

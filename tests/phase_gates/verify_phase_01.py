@@ -1,8 +1,9 @@
 """Phase Gate 01 Verification Test: Verifies shared package dependencies, dataclass models, and JSON round-trip serialization/deserialization."""
 
 import os
-import sys
 import subprocess
+import sys
+
 
 def install_requirements():
     """Install project dependencies from requirements.txt silently."""

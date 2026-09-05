@@ -1,11 +1,13 @@
 """Phase Gate 03 Verification Test: Validates Catalog REST endpoints (/register, /devices) and hot-reload file watching to MQTT config-update topic."""
 
-import os
-import sys
-import subprocess
-import time
-import requests
 import json
+import os
+import subprocess
+import sys
+import time
+
+import requests
+
 
 def install_requirements():
     """Install project dependencies from requirements.txt silently."""
@@ -28,7 +30,7 @@ def verify_phase_3():
     print("Bringing up docker-compose (including catalog)...")
     try:
         subprocess.check_call(["docker", "compose", "up", "-d", "--build"], cwd=project_dir)
-    except Exception as e:
+    except Exception:
         try:
             subprocess.check_call(["docker-compose", "up", "-d", "--build"], cwd=project_dir)
         except Exception as e2:

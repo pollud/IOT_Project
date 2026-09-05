@@ -1,14 +1,51 @@
 {
-    "rooms": [
-        "room_cyberpunk",
-        "room_matrix",
-        "room_alien",
-        "room_dungeon",
-        "room_atlantis",
-        "room_tomb",
-        "room_haunted",
-        "room_asylum",
-        "room_sherlock",
-        "room_arcade"
-    ]
+  "rooms": [
+    {
+      "room_id": "room1",
+      "name": "Vault 101",
+      "theme": "Fallout",
+      "strategy_version": "vault_101_v2",
+      "max_duration_seconds": 3600,
+      "dimensions": {"width_m": 10.0, "height_m": 8.0},
+      "environment_sensor": {
+        "sensor_id": "env1",
+        "hardware": "BME680 simulator / Raspberry Pi connector",
+        "calibration": {"temperature_offset": -0.5, "humidity_offset": 2.0, "co2_offset": 0.0, "voc_offset": 0.0}
+      },
+      "badges": [
+        {"badge_id": "b1", "player": "Player 1"},
+        {"badge_id": "b2", "player": "Player 2"}
+      ],
+      "props": [
+        {"prop_id": "pipboy", "sensor": "rfid", "expected_value": "scanned"},
+        {"prop_id": "terminal", "sensor": "button", "expected_value": "hacked"},
+        {"prop_id": "geiger_counter", "sensor": "capacitive", "expected_value": "touched"}
+      ],
+      "actuators": ["main_door", "lights", "audio"]
+    },
+    {
+      "room_id": "room2",
+      "name": "Spencer Mansion",
+      "theme": "Resident Evil",
+      "strategy_version": "spencer_mansion_v2",
+      "max_duration_seconds": 3600,
+      "dimensions": {"width_m": 9.0, "height_m": 9.0},
+      "environment_sensor": {
+        "sensor_id": "env1",
+        "hardware": "BME680 simulator / Raspberry Pi connector",
+        "calibration": {"temperature_offset": -0.3, "humidity_offset": 1.5, "co2_offset": 0.0, "voc_offset": 0.0}
+      },
+      "badges": [
+        {"badge_id": "b3", "player": "Player 1"},
+        {"badge_id": "b4", "player": "Player 2"}
+      ],
+      "props": [
+        {"prop_id": "typewriter", "sensor": "button", "expected_value": "pressed"},
+        {"prop_id": "crest_socket", "sensor": "rfid", "expected_value": "sun_crest"},
+        {"prop_id": "crank_hole", "sensor": "rotary", "expected_value": "turned"}
+      ],
+      "actuators": ["main_door", "lights", "audio"]
+    }
+  ]
 }
+

@@ -1,597 +1,485 @@
-/**
- * Main Web Dashboard Application Script handling state management, SSE live telemetry streams, Chart.js graphs, and interactive room control.
- */
+import './style.css';
 
-import './style.css'
+const API = '/api';
+const model = {
+  definitions: {},
+  strategies: {},
+  rooms: {},
+  presence: {},
+  alerts: [],
+  history: {},
+  heatmaps: {},
+};
 
-const roomsWrapper = document.getElementById('rooms-wrapper');
-const presenceWrapper = document.getElementById('presence-wrapper');
-const periodSelect = document.getElementById('time-period');
-const btnResetDb = document.getElementById('btn-reset-db');
-const terminalLog = document.getElementById('terminal-log');
+const elements = {
+  rooms: document.querySelector('#rooms-grid'),
+  alerts: document.querySelector('#alert-center'),
+  presence: document.querySelector('#presence-grid'),
+  log: document.querySelector('#event-log'),
+  connection: document.querySelector('#connection-state'),
+  period: document.querySelector('#period-select'),
+  center: document.querySelector('#center-kpis'),
+  safety: document.querySelector('#safety-kpis'),
+  bottlenecks: document.querySelector('#bottlenecks'),
+  maintenance: document.querySelector('#maintenance'),
+};
 
-const API_BASE = 'http://localhost:8087/api';
+let renderQueued = false;
 
-let roomsState = {};
-let roomCharts = {};
-let lastKnownStates = {};
-
-// Tab Navigation Logic
-document.querySelectorAll('.nav-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    
-    tab.classList.add('active');
-    const targetId = tab.getAttribute('data-tab');
-    document.getElementById(targetId).classList.add('active');
-
-    if (targetId === 'analytics-tab') {
-      fetchAnalyticsData();
-    } else if (targetId === 'presence-tab') {
-      fetchPresenceData();
-    }
-  });
-});
-
-/**
- * Append a formatted log entry line to the terminal UI panel.
- * 
- * @param {string} message - Message text or HTML string.
- * @param {string} [type='system'] - Log category CSS class.
- */
-function logToTerminal(message, type = 'system') {
-  const timestamp = new Date().toLocaleTimeString();
-  const logLine = document.createElement('div');
-  logLine.className = `log-line ${type}`;
-  logLine.innerHTML = `[${timestamp}] ${message}`;
-  terminalLog.appendChild(logLine);
-  terminalLog.scrollTop = terminalLog.scrollHeight;
+function create(tag, className = '', text = '') {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== '') element.textContent = String(text);
+  return element;
 }
 
-/**
- * Get the currently selected timeframe period filter.
- * 
- * @returns {string} Selected period string ("1h", "24h", "7d", or "all").
- */
-function getSelectedPeriod() {
-  return periodSelect.value;
+async function getJson(path, options = {}) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`${response.status}: ${message || response.statusText}`);
+  }
+  return response.json();
 }
 
-/**
- * Fetch status of all game rooms from the web dashboard API and update UI panels.
- */
-async function fetchStatus() {
-  try {
-    const res = await fetch(`${API_BASE}/status`);
-    const data = await res.json();
-    
-    for (const [roomId, status] of Object.entries(data)) {
-      if (!roomsState[roomId]) {
-        roomsState[roomId] = { status, env: null, stats: null, strategy: null };
-        lastKnownStates[roomId] = status.current_state;
-        
-        await fetchRoomStrategy(roomId);
-        renderRoomPanel(roomId);
-        initRoomChart(roomId);
-        await updateRoomData(roomId);
-      } else {
-        const oldState = lastKnownStates[roomId];
-        const newState = status.current_state;
-        
-        roomsState[roomId].status = status;
-        
-        if (oldState !== newState) {
-          lastKnownStates[roomId] = newState;
-          logToTerminal(`🚪 <b>[${roomId}]</b> FSM Transition: <span style="color:#00d2ff">${oldState}</span> ➡️ <span style="color:#00e676">${newState}</span>`, 'state-change');
-          await updateRoomData(roomId);
-        }
-        
-        updateRoomDOM(roomId);
-      }
-    }
-  } catch (err) {
-    console.error('Failed to fetch status', err);
-  }
-}
-
-/**
- * Fetch FSM strategy configuration for a room from catalog API.
- * 
- * @param {string} roomId - Room identifier.
- */
-async function fetchRoomStrategy(roomId) {
-  try {
-    const res = await fetch(`${API_BASE}/strategy/${roomId}`);
-    if (res.ok) {
-      roomsState[roomId].strategy = await res.json();
-    }
-  } catch (err) {
-    console.error(`Failed to fetch strategy for ${roomId}`, err);
-  }
-}
-
-/**
- * Fetch analytics stats, environmental telemetry, and chart history for a room.
- * 
- * @param {string} roomId - Room identifier.
- */
-async function updateRoomData(roomId) {
-  const period = getSelectedPeriod();
-  try {
-    const statsRes = await fetch(`${API_BASE}/stats/room/${roomId}?period=${period}`);
-    if (statsRes.ok) {
-      roomsState[roomId].stats = await statsRes.json();
-    }
-    
-    const envRes = await fetch(`${API_BASE}/stats/environment/${roomId}?period=${period}`);
-    if (envRes.ok) {
-      roomsState[roomId].env = await envRes.json();
-    }
-    
-    const historyRes = await fetch(`${API_BASE}/stats/history/${roomId}?period=${period}`);
-    if (historyRes.ok) {
-      const historyData = await historyRes.json();
-      updateChart(roomId, historyData.history || []);
-    }
-    
-    updateRoomDOM(roomId);
-  } catch (err) {
-    console.error(`Error loading data for ${roomId}`, err);
-  }
-}
-
-/**
- * Render the complete room card panel container with interactive controls and stats cards into DOM.
- * 
- * @param {string} roomId - Room identifier.
- */
-function renderRoomPanel(roomId) {
-  const data = roomsState[roomId];
-  const strategyName = data.strategy ? data.strategy.name || data.strategy.version : 'Custom Game';
-  
-  let stepsHtml = '';
-  let propsOptions = '<option value="prop1">default_prop</option>';
-  
-  if (data.strategy && data.strategy.states) {
-    stepsHtml = Object.keys(data.strategy.states)
-      .map(state => `<span class="fsm-step" id="step-${roomId}-${state}">${state}</span>`)
-      .join('');
-
-    // Extract prop IDs from strategy definition
-    const propSet = new Set();
-    Object.values(data.strategy.states).forEach(st => {
-      (st.transitions || []).forEach(tr => {
-        if (tr.prop_id) propSet.add(tr.prop_id);
-      });
-    });
-    if (propSet.size > 0) {
-      propsOptions = Array.from(propSet).map(p => `<option value="${p}">${p}</option>`).join('');
-    }
-  }
-
-  const html = `
-    <div class="room-panel" id="panel-${roomId}">
-      <div class="room-info">
-        <div>
-          <h2>${roomId}</h2>
-          <span class="strategy-label">STRATEGY: ${strategyName}</span>
-        </div>
-        <div class="room-actions">
-          <button class="btn btn-open" onclick="sendCommand('${roomId}', 'unlockDoor')">🔓 Unlock</button>
-          <button class="btn btn-reset" onclick="sendCommand('${roomId}', 'reset')">🔄 Reset</button>
-        </div>
-      </div>
-      
-      <div class="room-state-banner">
-        <div>FSM STATE: <span class="state-text" id="state-${roomId}">--</span></div>
-        <span class="door-tag" id="lock-${roomId}">LOCKED</span>
-      </div>
-
-      <div class="fsm-tracker-container">
-        <div class="fsm-tracker-title">Visual Puzzle Workflow</div>
-        <div class="fsm-steps">${stepsHtml}</div>
-      </div>
-
-      <!-- INTERACTIVE ROOM CONTROLS -->
-      <div class="interactive-controls-container">
-        <div class="control-box">
-          <div class="control-box-title">🕹️ Prop Control</div>
-          <div class="control-row">
-            <select id="prop-id-${roomId}">${propsOptions}</select>
-            <select id="prop-type-${roomId}">
-              <option value="keypad">Keypad</option>
-              <option value="rfid">RFID Tag</option>
-              <option value="button">Button</option>
-              <option value="capacitive">Capacitive</option>
-            </select>
-            <input type="text" id="prop-val-${roomId}" placeholder="Value..." value="pressed" />
-            <button class="btn btn-action" onclick="triggerProp('${roomId}')">Trigger</button>
-          </div>
-        </div>
-
-        <div class="control-box">
-          <div class="control-box-title">🔊 Audio Speaker</div>
-          <div class="control-row">
-            <select id="audio-track-${roomId}">
-              <option value="ambient.mp3">Ambient Theme</option>
-              <option value="hack_success.mp3">Hack Success</option>
-              <option value="siren_alert.mp3">Siren Alert</option>
-              <option value="magic_chime.mp3">Magic Chime</option>
-              <option value="whispers.mp3">Spooky Whispers</option>
-              <option value="boss_battle.mp3">Boss Battle</option>
-            </select>
-            <button class="btn btn-action" onclick="playAudio('${roomId}')">Play Sound</button>
-          </div>
-        </div>
-
-        <div class="control-box">
-          <div class="control-box-title">💡 Ambiance Lighting</div>
-          <div class="control-row">
-            <select id="light-color-${roomId}">
-              <option value="cyan">Cyan</option>
-              <option value="purple">Purple</option>
-              <option value="red">Red Warning</option>
-              <option value="green">Matrix Green</option>
-              <option value="orange">Dungeon Orange</option>
-              <option value="dark_red">Horror Dark Red</option>
-              <option value="strobe">Strobe Light</option>
-              <option value="warm_yellow">Warm Yellow</option>
-            </select>
-            <button class="btn btn-action" onclick="setLights('${roomId}')">Apply Light</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="room-details-grid">
-        <div class="chart-container">
-          <div class="chart-title">Solved Stats</div>
-          <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100%;">
-            <div style="font-size:1.8rem; font-weight:800;" id="solve-time-${roomId}">--</div>
-            <div style="font-size:0.8rem; color:var(--text-muted);">Avg Solve Time</div>
-            <div style="font-size:1.1rem; font-weight:700; margin-top:0.5rem;" id="total-sessions-${roomId}">--</div>
-            <div style="font-size:0.7rem; color:var(--text-muted);">Total Sessions</div>
-          </div>
-        </div>
-
-        <div class="chart-container">
-          <div class="chart-title">Temp & Humidity Trends</div>
-          <canvas id="chart-canvas-${roomId}" style="max-height:140px;"></canvas>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  roomsWrapper.insertAdjacentHTML('beforeend', html);
-}
-
-/**
- * Update DOM elements for a room panel (state text, lock tag, active step highlight, solve stats).
- * 
- * @param {string} roomId - Room identifier.
- */
-function updateRoomDOM(roomId) {
-  const data = roomsState[roomId];
-  const stateEl = document.getElementById(`state-${roomId}`);
-  const lockEl = document.getElementById(`lock-${roomId}`);
-  
-  const solveTimeEl = document.getElementById(`solve-time-${roomId}`);
-  const totalSessionsEl = document.getElementById(`total-sessions-${roomId}`);
-
-  const currentState = data.status ? (data.status.current_state || 'entrance') : 'entrance';
-  if (stateEl) stateEl.textContent = currentState;
-  
-  if (lockEl) {
-    const isLocked = currentState !== 'game_cleared' && currentState !== 'core_unlocked' && currentState !== 'champion_cleared' && currentState !== 'case_solved';
-    lockEl.textContent = isLocked ? 'LOCKED' : 'UNLOCKED';
-    lockEl.className = `door-tag ${isLocked ? 'locked' : 'unlocked'}`;
-  }
-  
-  if (data.strategy && data.strategy.states) {
-    Object.keys(data.strategy.states).forEach(state => {
-      const stepEl = document.getElementById(`step-${roomId}-${state}`);
-      if (stepEl) {
-        stepEl.className = 'fsm-step';
-        if (state === currentState) {
-          stepEl.classList.add('active');
-        }
-      }
-    });
-  }
-
-  if (solveTimeEl && data.stats) {
-    const avgTime = typeof data.stats.avg_solve_time === 'number' && data.stats.avg_solve_time > 0
-      ? (data.stats.avg_solve_time / 60).toFixed(1) + 'm'
-      : '--';
-    solveTimeEl.textContent = avgTime;
-  }
-  
-  if (totalSessionsEl && data.stats) {
-    totalSessionsEl.textContent = data.stats.total_sessions || '0';
-  }
-}
-
-/**
- * Initialize Chart.js line graph canvas for environmental trends.
- * 
- * @param {string} roomId - Room identifier.
- */
-function initRoomChart(roomId) {
-  const canvas = document.getElementById(`chart-canvas-${roomId}`);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  roomCharts[roomId] = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: 'Temp (°C)',
-          data: [],
-          borderColor: '#00d2ff',
-          backgroundColor: 'rgba(0, 210, 255, 0.1)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3
-        },
-        {
-          label: 'Hum (%)',
-          data: [],
-          borderColor: '#9d4edd',
-          backgroundColor: 'rgba(157, 78, 221, 0.1)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { display: false },
-        y: { 
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { color: '#838396', font: { size: 9 } }
-        }
-      }
-    }
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  window.requestAnimationFrame(() => {
+    renderQueued = false;
+    renderRooms();
+    renderPresence();
+    renderAlerts();
   });
 }
 
-/**
- * Update Chart.js dataset with new historical data points.
- * 
- * @param {string} roomId - Room identifier.
- * @param {Array<Object>} history - Environmental history data points.
- */
-function updateChart(roomId, history) {
-  const chart = roomCharts[roomId];
-  if (!chart) return;
-  
-  const maxPoints = 30;
-  const skip = Math.max(1, Math.floor(history.length / maxPoints));
-  const sampledHistory = history.filter((_, idx) => idx % skip === 0);
-
-  chart.data.labels = sampledHistory.map(pt => pt.timestamp);
-  chart.data.datasets[0].data = sampledHistory.map(pt => pt.temperature);
-  chart.data.datasets[1].data = sampledHistory.map(pt => pt.humidity);
-  chart.update();
+function logEvent(message, kind = 'info') {
+  const item = create('li', kind);
+  const timestamp = create('time', '', new Date().toLocaleTimeString());
+  item.append(timestamp, document.createTextNode(message));
+  elements.log.prepend(item);
+  while (elements.log.children.length > 100) elements.log.lastElementChild.remove();
 }
 
-/**
- * Trigger prop interaction event via API.
- * 
- * @param {string} roomId - Target room ID.
- */
-window.triggerProp = async (roomId) => {
-  const propId = document.getElementById(`prop-id-${roomId}`).value;
-  const type = document.getElementById(`prop-type-${roomId}`).value;
-  const val = document.getElementById(`prop-val-${roomId}`).value;
-  
-  logToTerminal(`🎮 Triggering Prop <b>[${propId}]</b> in room: <b>${roomId}</b> (${type}=${val})`, 'command');
-  try {
-    await fetch(`${API_BASE}/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: roomId,
-        command: 'trigger_prop',
-        prop_id: propId,
-        interaction_type: type,
-        value: val
-      })
-    });
-  } catch (err) {
-    logToTerminal(`❌ Prop trigger failed: ${err.message}`, 'system');
-  }
-};
+function mergeSnapshot(snapshot) {
+  if (!snapshot) return;
+  model.rooms = snapshot.rooms || model.rooms;
+  model.presence = snapshot.presence || model.presence;
+  model.alerts = snapshot.alerts || model.alerts;
+  scheduleRender();
+}
 
-/**
- * Trigger audio playback command via API.
- * 
- * @param {string} roomId - Target room ID.
- */
-window.playAudio = async (roomId) => {
-  const track = document.getElementById(`audio-track-${roomId}`).value;
-  logToTerminal(`🔊 Playing Audio <b>[${track}]</b> in room: <b>${roomId}</b>`, 'command');
-  try {
-    await fetch(`${API_BASE}/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_id: roomId, command: 'play_audio', track })
-    });
-  } catch (err) {
-    logToTerminal(`❌ Audio trigger failed: ${err.message}`, 'system');
+function handleLiveEvent(event) {
+  const message = JSON.parse(event.data);
+  const { room_id: roomId, event_type: eventType, decoded, topic } = message;
+  if (topic.startsWith('status/')) {
+    model.presence[topic.split('/')[1]] = decoded;
+  } else if (topic === 'system/alerts') {
+    model.alerts.unshift(decoded);
+    model.alerts = model.alerts.slice(0, 50);
+    logEvent(` CRITICAL ${decoded.room_id}: ${decoded.message}`, 'critical');
+  } else if (roomId && model.rooms[roomId]) {
+    const room = model.rooms[roomId];
+    const parts = topic.split('/');
+    if (eventType === 'environment') room.environment = { ...decoded, timestamp: message.received_at };
+    if (eventType.startsWith('badge_')) {
+      const badgeId = parts[3];
+      room.badges[badgeId] = { ...(room.badges[badgeId] || {}), ...decoded, timestamp: message.received_at };
+    }
+    if (eventType.startsWith('prop_')) {
+      const propId = parts[3];
+      room.props[propId] = { ...(room.props[propId] || {}), ...decoded, timestamp: message.received_at };
+    }
+    if (eventType === 'game_status') room.status = decoded;
+    if (eventType === 'game_transition') {
+      room.last_transition = decoded;
+      logEvent(` ${roomId}: ${decoded.from_state} → ${decoded.to_state} (${decoded.trigger})`, 'transition');
+    }
   }
-};
+  scheduleRender();
+}
 
-/**
- * Apply ambiance lighting color command via API.
- * 
- * @param {string} roomId - Target room ID.
- */
-window.setLights = async (roomId) => {
-  const color = document.getElementById(`light-color-${roomId}`).value;
-  logToTerminal(`💡 Applying Light <b>[${color}]</b> in room: <b>${roomId}</b>`, 'command');
-  try {
-    await fetch(`${API_BASE}/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_id: roomId, command: 'set_lights', color })
-    });
-  } catch (err) {
-    logToTerminal(`❌ Light trigger failed: ${err.message}`, 'system');
-  }
-};
+function connectLiveStream() {
+  const stream = new EventSource(`${API}/stream`);
+  stream.addEventListener('snapshot', (event) => mergeSnapshot(JSON.parse(event.data)));
+  stream.addEventListener('mqtt', handleLiveEvent);
+  stream.onopen = () => {
+    elements.connection.className = 'connection online';
+    elements.connection.lastChild.textContent = 'Live SSE connected';
+    logEvent(' Live Server-Sent Events channel connected.', 'success');
+  };
+  stream.onerror = () => {
+    elements.connection.className = 'connection offline';
+    elements.connection.lastChild.textContent = 'Reconnecting live stream';
+  };
+}
 
-/**
- * Dispatch generic operator room command (unlockDoor, reset).
- * 
- * @param {string} roomId - Target room ID.
- * @param {string} command - Command name string.
- */
-window.sendCommand = async (roomId, command) => {
-  try {
-    logToTerminal(`🚀 Sending Command <b>[${command}]</b> to room: <b>${roomId}</b>`, 'command');
-    await fetch(`${API_BASE}/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_id: roomId, command })
-    });
-    setTimeout(fetchStatus, 500);
-  } catch (err) {
-    logToTerminal(`❌ Command transmission failed: ${err.message}`, 'system');
-  }
-};
+function metric(label, value, unit = '') {
+  const wrapper = create('div', 'metric');
+  wrapper.append(create('strong', '', `${value}${unit}`), create('span', '', label));
+  return wrapper;
+}
 
-/**
- * Fetch and render system presence data cards.
- */
-async function fetchPresenceData() {
-  try {
-    const res = await fetch(`${API_BASE}/presence`);
-    const data = await res.json();
-    
-    let html = '';
-    for (const [serviceId, info] of Object.entries(data)) {
-      // Skip raw individual prop or badge device noise
-      if (serviceId.startsWith('prop_prop') || serviceId.startsWith('badge_b')) {
-        continue;
+function roomStrategyProps(strategy) {
+  const props = new Map();
+  Object.values(strategy?.states || {}).forEach((state) => {
+    (state.transitions || []).forEach((transition) => {
+      if (transition.trigger === 'event') {
+        props.set(transition.prop_id, {
+          prop_id: transition.prop_id,
+          interaction_type: transition.interaction_type,
+          value: String(transition.value),
+        });
       }
-      
-      const isOnline = info.status === 'online';
-      const timestampStr = info.timestamp ? new Date(info.timestamp * 1000).toLocaleTimeString() : 'N/A';
-      
-      let detailText = `Last Seen: ${timestampStr}`;
-      if (info.props_online !== undefined) {
-        detailText = `📦 <b>${info.props_online}/${info.props_total || 40} Props Available</b> | Last Seen: ${timestampStr}`;
-      } else if (info.badges_active !== undefined) {
-        detailText = `🏷️ <b>${info.badges_active}/${info.badges_total || 80} Badges Activated</b> | Last Seen: ${timestampStr}`;
-      }
-      
-      html += `
-        <div class="presence-card ${isOnline ? 'online' : 'offline'}">
-          <div class="presence-title">
-            <span>${serviceId}</span>
-            <span class="presence-badge ${isOnline ? 'badge-online' : 'badge-offline'}">${info.status || 'unknown'}</span>
-          </div>
-          <div class="presence-time">${detailText}</div>
-        </div>
-      `;
-    }
-    
-    presenceWrapper.innerHTML = html || '<div>No system presence data reported yet.</div>';
-  } catch (err) {
-    console.error('Failed to fetch presence data', err);
+    });
+  });
+  return [...props.values()];
+}
+
+function commandButton(label, command, roomId, className = '') {
+  const button = create('button', `command-button ${className}`, label);
+  button.dataset.command = command;
+  button.dataset.room = roomId;
+  return button;
+}
+
+function renderRooms() {
+  const fragment = document.createDocumentFragment();
+  Object.entries(model.definitions).forEach(([roomId, definition]) => {
+    const live = model.rooms[roomId] || { badges: {}, props: {} };
+    const status = live.status || {};
+    const environment = live.environment || {};
+    const card = create('article', 'room-card');
+
+    const heading = create('header', 'room-heading');
+    const title = create('div');
+    title.append(create('p', 'eyebrow', definition.theme), create('h2', '', definition.name));
+    const state = create('div', `state-pill ${status.completed ? 'completed' : ''}`, status.current_state || 'Waiting for FSM');
+    heading.append(title, state);
+
+    const environmentGrid = create('div', 'environment-grid');
+    environmentGrid.append(
+      metric('Temperature', environment.temperature?.toFixed?.(1) ?? '—', ' °C'),
+      metric('Humidity', environment.humidity?.toFixed?.(1) ?? '—', ' %'),
+      metric('CO₂', environment.co2?.toFixed?.(0) ?? '—', ' ppm'),
+      metric('VOC', environment.voc?.toFixed?.(2) ?? '—', ' mg/m³'),
+    );
+
+    const workflow = create('div', 'workflow');
+    Object.keys(model.strategies[roomId]?.states || {}).forEach((stateName) => {
+      workflow.append(create('span', stateName === status.current_state ? 'active' : '', stateName));
+    });
+
+    const people = create('section', 'room-subpanel');
+    people.append(create('h3', '', 'Live player badges'));
+    const badgeList = create('div', 'badge-list');
+    Object.entries(live.badges || {}).forEach(([badgeId, badgeState]) => {
+      const badgeRow = create('div', 'badge-row');
+      badgeRow.append(
+        create('strong', '', badgeId),
+        create('span', '', `x ${Number(badgeState.x || 0).toFixed(1)} m · y ${Number(badgeState.y || 0).toFixed(1)} m`),
+        create('span', badgeState.battery < 20 ? 'low' : '', `${Number(badgeState.battery || 0).toFixed(0)}% battery`),
+      );
+      badgeList.append(badgeRow);
+    });
+    if (!badgeList.children.length) badgeList.append(create('p', 'muted', 'Waiting for badge telemetry…'));
+    people.append(badgeList);
+
+    const controls = create('section', 'room-subpanel controls');
+    controls.append(create('h3', '', 'Game Master controls'));
+    const buttonRow = create('div', 'button-row');
+    buttonRow.append(
+      commandButton('Unlock door', 'unlock', roomId, 'primary'),
+      commandButton('Lock door', 'lock', roomId),
+      commandButton('Reset session', 'reset', roomId, 'warning'),
+    );
+    controls.append(buttonRow);
+
+    const propRow = create('div', 'control-row');
+    const propSelect = create('select');
+    propSelect.dataset.propSelect = roomId;
+    roomStrategyProps(model.strategies[roomId]).forEach((item) => {
+      const option = create('option', '', `${item.prop_id}: ${item.interaction_type} = ${item.value}`);
+      option.value = JSON.stringify(item);
+      propSelect.append(option);
+    });
+    const trigger = commandButton('Trigger selected prop', 'trigger_prop', roomId, 'accent');
+    propRow.append(propSelect, trigger);
+    controls.append(propRow);
+
+    const effects = create('div', 'control-row');
+    const light = create('select');
+    light.dataset.lightSelect = roomId;
+    ['vault_blue', 'mansion_dim', 'warning_amber', 'success_green', 'emergency_white'].forEach((color) => {
+      const option = create('option', '', color);
+      option.value = color;
+      light.append(option);
+    });
+    effects.append(light, commandButton('Set lights', 'set_lights', roomId));
+    const track = create('input');
+    track.dataset.audioInput = roomId;
+    track.value = 'operator_message.mp3';
+    track.setAttribute('aria-label', 'Audio track');
+    effects.append(track, commandButton('Play audio', 'play_audio', roomId));
+    controls.append(effects);
+
+    const visuals = create('div', 'visual-grid');
+    const historyPanel = create('section', 'room-subpanel');
+    historyPanel.append(create('h3', '', 'Environment history'));
+    const historyCanvas = create('canvas');
+    historyCanvas.dataset.history = roomId;
+    historyPanel.append(historyCanvas);
+    const heatmapPanel = create('section', 'room-subpanel');
+    heatmapPanel.append(create('h3', '', 'Player heatmap and latest positions'));
+    const heatmapCanvas = create('canvas');
+    heatmapCanvas.dataset.heatmap = roomId;
+    heatmapPanel.append(heatmapCanvas);
+    visuals.append(historyPanel, heatmapPanel);
+
+    card.append(heading, environmentGrid, workflow, people, controls, visuals);
+    fragment.append(card);
+  });
+  elements.rooms.replaceChildren(fragment);
+  window.requestAnimationFrame(drawRoomVisuals);
+}
+
+function prepareCanvas(canvas, height = 180) {
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(280, canvas.clientWidth);
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  const context = canvas.getContext('2d');
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return { context, width, height };
+}
+
+function drawHistory(canvas, history) {
+  const { context, width, height } = prepareCanvas(canvas);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = '#0d111b';
+  context.fillRect(0, 0, width, height);
+  const points = history || [];
+  if (points.length < 2) {
+    context.fillStyle = '#8792a6';
+    context.fillText('Historical samples will appear here', 16, 28);
+    return;
+  }
+  const plot = (key, color) => {
+    const values = points.map((point) => Number(point[key])).filter(Number.isFinite);
+    if (values.length < 2) return;
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    const span = maximum - minimum || 1;
+    context.beginPath();
+    context.strokeStyle = color;
+    context.lineWidth = 2;
+    values.forEach((value, index) => {
+      const x = 12 + (index / (values.length - 1)) * (width - 24);
+      const y = height - 16 - ((value - minimum) / span) * (height - 32);
+      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+    });
+    context.stroke();
+  };
+  plot('temperature', '#23d5ff');
+  plot('humidity', '#a970ff');
+}
+
+function drawHeatmap(canvas, heatmap) {
+  const { context, width, height } = prepareCanvas(canvas);
+  context.fillStyle = '#0d111b';
+  context.fillRect(0, 0, width, height);
+  if (!heatmap?.cells) {
+    context.fillStyle = '#8792a6';
+    context.fillText('Position samples will appear here', 16, 28);
+    return;
+  }
+  const rows = heatmap.cells.length;
+  const columns = heatmap.cells[0]?.length || 1;
+  const max = Math.max(1, ...heatmap.cells.flat());
+  const cellWidth = width / columns;
+  const cellHeight = height / rows;
+  heatmap.cells.forEach((row, rowIndex) => row.forEach((count, columnIndex) => {
+    const intensity = count / max;
+    context.fillStyle = `rgba(35, 213, 255, ${0.05 + intensity * 0.75})`;
+    context.fillRect(columnIndex * cellWidth, rowIndex * cellHeight, cellWidth - 1, cellHeight - 1);
+  }));
+  (heatmap.latest_positions || []).forEach((point) => {
+    const x = (point.x / heatmap.dimensions.width_m) * width;
+    const y = (point.y / heatmap.dimensions.height_m) * height;
+    context.beginPath();
+    context.fillStyle = '#ffcf4a';
+    context.arc(x, y, 5, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#ffffff';
+    context.fillText(point.badge_id, x + 8, y + 4);
+  });
+}
+
+function drawRoomVisuals() {
+  document.querySelectorAll('canvas[data-history]').forEach((canvas) => drawHistory(canvas, model.history[canvas.dataset.history]));
+  document.querySelectorAll('canvas[data-heatmap]').forEach((canvas) => drawHeatmap(canvas, model.heatmaps[canvas.dataset.heatmap]));
+}
+
+function renderAlerts() {
+  elements.alerts.replaceChildren();
+  const active = model.alerts.slice(0, 3);
+  elements.alerts.hidden = active.length === 0;
+  active.forEach((alert) => {
+    const item = create('div', 'alert-item');
+    item.append(create('strong', '', `${alert.severity || 'critical'} · ${alert.room_id}`), create('span', '', alert.message));
+    elements.alerts.append(item);
+  });
+}
+
+function renderPresence() {
+  const fragment = document.createDocumentFragment();
+  Object.entries(model.presence).sort(([a], [b]) => a.localeCompare(b)).forEach(([name, data]) => {
+    const online = data.status === 'online';
+    const card = create('article', `presence-card ${online ? 'online' : 'offline'}`);
+    card.append(
+      create('strong', '', name),
+      create('span', 'presence-state', online ? 'ONLINE' : String(data.status || 'UNKNOWN').toUpperCase()),
+      create('small', '', data.timestamp ? `Last seen ${new Date(data.timestamp * 1000).toLocaleTimeString()}` : 'No timestamp'),
+    );
+    fragment.append(card);
+  });
+  if (!fragment.children?.length && !Object.keys(model.presence).length) fragment.append(create('p', 'loading', 'Waiting for service heartbeats…'));
+  elements.presence.replaceChildren(fragment);
+}
+
+async function sendCommand(roomId, command) {
+  const payload = { room_id: roomId, command };
+  if (command === 'trigger_prop') {
+    const select = document.querySelector(`select[data-prop-select="${roomId}"]`);
+    if (!select?.value) throw new Error('No configured prop transition');
+    Object.assign(payload, JSON.parse(select.value));
+  }
+  if (command === 'set_lights') payload.color = document.querySelector(`select[data-light-select="${roomId}"]`).value;
+  if (command === 'play_audio') payload.track = document.querySelector(`input[data-audio-input="${roomId}"]`).value;
+  const result = await getJson(`${API}/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  logEvent(` ${roomId}: accepted ${command} on ${result.topic}`, 'command');
+}
+
+async function refreshHistorical() {
+  const period = elements.period.value;
+  const roomIds = Object.keys(model.definitions);
+  await Promise.all(roomIds.flatMap((roomId) => [
+    getJson(`${API}/stats/history?room_id=${encodeURIComponent(roomId)}&period=${period}&limit=300`)
+      .then((data) => { model.history[roomId] = data.history; }),
+    getJson(`${API}/stats/heatmap?room_id=${encodeURIComponent(roomId)}&period=${period}`)
+      .then((data) => { model.heatmaps[roomId] = data; }),
+  ]));
+  await refreshAnalytics();
+  scheduleRender();
+}
+
+function renderMetricSet(container, metrics) {
+  const fragment = document.createDocumentFragment();
+  metrics.forEach(([label, value, unit]) => fragment.append(metric(label, value, unit)));
+  container.replaceChildren(fragment);
+}
+
+async function refreshAnalytics() {
+  const period = elements.period.value;
+  const [center, safety, bottlenecks, maintenance] = await Promise.all([
+    getJson(`${API}/stats/game_center?period=${period}`),
+    getJson(`${API}/stats/safety?period=${period}`),
+    getJson(`${API}/stats/bottlenecks?period=${period}`),
+    getJson(`${API}/stats/maintenance?period=${period}`),
+  ]);
+  renderMetricSet(elements.center, [
+    ['Sessions', center.kpis.total_sessions, ''],
+    ['Completion rate', center.kpis.completion_rate_percent, '%'],
+    ['Average duration', Math.round(center.kpis.overall_avg_duration_seconds / 60), ' min'],
+    ['Estimated throughput', center.kpis.estimated_players_per_hour, ' players/h'],
+  ]);
+  renderMetricSet(elements.safety, [
+    ['Safety index', safety.safety_score_percent, '%'],
+    ['Comfort samples', safety.environment_samples, ''],
+    ['Critical alerts', safety.total_alerts, ''],
+  ]);
+
+  const table = create('table');
+  const head = create('tr');
+  ['Room', 'Puzzle/state', 'Samples', 'Average', 'Maximum'].forEach((label) => head.append(create('th', '', label)));
+  table.append(head);
+  (bottlenecks.bottlenecks || []).forEach((entry) => {
+    const row = create('tr');
+    [entry.room_id, entry.puzzle, entry.samples, `${entry.avg_solve_seconds}s`, `${entry.max_solve_seconds}s`]
+      .forEach((value) => row.append(create('td', '', value)));
+    table.append(row);
+  });
+  if ((bottlenecks.bottlenecks || []).length) elements.bottlenecks.replaceChildren(table);
+  else elements.bottlenecks.replaceChildren(create('p', 'muted', 'Complete a room to calculate historical solve-time bottlenecks.'));
+
+  const warnings = maintenance.maintenance_required || [];
+  if (!warnings.length) elements.maintenance.replaceChildren(create('p', 'healthy', 'All reporting badges and props are healthy.'));
+  else {
+    const list = create('ul');
+    warnings.forEach((warning) => list.append(create('li', '', `${warning.component_id}: ${warning.reason} (${warning.value})`)));
+    elements.maintenance.replaceChildren(list);
   }
 }
 
-/**
- * Fetch and render advanced venue analytics dashboards (KPIs, bottlenecks, safety index, hardware alerts).
- */
-async function fetchAnalyticsData() {
+async function initialize() {
   try {
-    // 1. Center Overview
-    const centerRes = await fetch(`${API_BASE}/stats/game_center`);
-    if (centerRes.ok) {
-      const data = await centerRes.json();
-      document.getElementById('analytics-center-body').innerHTML = `
-        <div class="metric-big">${data.kpis ? data.kpis.total_completed_games : 0}</div>
-        <div class="metric-label">Total Completed Games</div>
-        <div style="margin-top:1rem; font-size:0.9rem;">
-          <b>Estimated Hourly Throughput:</b> ${data.kpis ? data.kpis.estimated_hourly_player_throughput : 0} players/hr<br>
-          <b>Overall Avg Duration:</b> ${data.kpis ? Math.round(data.kpis.overall_avg_duration_sec / 60) : 0} minutes
-        </div>
-      `;
-    }
-
-    // 2. Bottlenecks
-    const bRes = await fetch(`${API_BASE}/stats/bottlenecks`);
-    if (bRes.ok) {
-      const data = await bRes.json();
-      const list = (data.chokepoints || []).map(cp => `<li><b>${cp.prop_id}</b>: ${cp.total_interactions} interactions (${cp.bottleneck_severity} severity)</li>`).join('');
-      document.getElementById('analytics-bottlenecks-body').innerHTML = list ? `<ul>${list}</ul>` : '<div>No chokepoints detected.</div>';
-    }
-
-    // 3. Safety
-    const sRes = await fetch(`${API_BASE}/stats/safety`);
-    if (sRes.ok) {
-      const data = await sRes.json();
-      document.getElementById('analytics-safety-body').innerHTML = `
-        <div class="metric-big" style="color:${data.safety_score_pct >= 80 ? '#00e676' : '#ff1744'}">${data.safety_score_pct}%</div>
-        <div class="metric-label">Safety & Comfort Score (${data.overall_status})</div>
-        <div style="margin-top:0.8rem; font-size:0.85rem;">
-          <b>Avg Temp:</b> ${data.metrics ? data.metrics.ambient_temp_avg_c : 0}°C | <b>Avg Humidity:</b> ${data.metrics ? data.metrics.ambient_humidity_avg_pct : 0}%<br>
-          <b>Safety Alerts:</b> ${data.metrics ? data.metrics.total_safety_alerts : 0}
-        </div>
-      `;
-    }
-
-    // 4. Maintenance
-    const mRes = await fetch(`${API_BASE}/stats/maintenance`);
-    if (mRes.ok) {
-      const data = await mRes.json();
-      const list = (data.maintenance_required || []).map(m => `<li>⚠️ <b>${m.component_id}</b> (${m.type}): ${m.status} (level: ${m.current_level})</li>`).join('');
-      document.getElementById('analytics-maintenance-body').innerHTML = list ? `<ul>${list}</ul>` : '<div>All props & hardware fully operational. No maintenance alerts.</div>';
-    }
-  } catch (err) {
-    console.error('Failed to fetch analytics', err);
+    const roomResponse = await getJson(`${API}/rooms`);
+    roomResponse.rooms.forEach((room) => {
+      model.definitions[room.room_id] = room;
+      model.rooms[room.room_id] = { definition: room, status: null, environment: null, badges: {}, props: {} };
+    });
+    await Promise.all(roomResponse.rooms.map(async (room) => {
+      model.strategies[room.room_id] = await getJson(`${API}/strategy/${room.room_id}`);
+    }));
+    mergeSnapshot(await getJson(`${API}/status`));
+    connectLiveStream();
+    await refreshHistorical();
+  } catch (error) {
+    logEvent(` Dashboard initialization failed: ${error.message}`, 'critical');
+    elements.rooms.replaceChildren(create('p', 'error-message', `Dashboard unavailable: ${error.message}`));
   }
 }
 
-periodSelect.addEventListener('change', async () => {
-  const period = getSelectedPeriod();
-  logToTerminal(`⚙️ Timeframe filter updated to: <b>${period}</b>`, 'system');
-  for (const roomId of Object.keys(roomsState)) {
-    await updateRoomData(roomId);
-  }
-});
-
-btnResetDb.addEventListener('click', async () => {
-  if (confirm('⚠️ Are you sure you want to RESET the entire events database?')) {
+document.addEventListener('click', async (event) => {
+  const commandTarget = event.target.closest('button[data-command]');
+  if (commandTarget) {
+    commandTarget.disabled = true;
     try {
-      const res = await fetch(`${API_BASE}/stats/reset`);
-      const data = await res.json();
-      if (data.success) {
-        logToTerminal(`🔥 <b>Database Cleared:</b> Historical analytics reset.`, 'system');
-        for (const roomId of Object.keys(roomsState)) {
-          await updateRoomData(roomId);
-        }
-      }
-    } catch (err) {
-      logToTerminal(`❌ Database reset failed: ${err.message}`, 'system');
+      await sendCommand(commandTarget.dataset.room, commandTarget.dataset.command);
+    } catch (error) {
+      logEvent(` Command failed: ${error.message}`, 'critical');
+    } finally {
+      commandTarget.disabled = false;
     }
   }
 });
 
-// Boot logic initialization
-fetchStatus();
-setInterval(fetchStatus, 2000);
-setInterval(async () => {
-  for (const roomId of Object.keys(roomsState)) {
-    await updateRoomData(roomId);
+document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === button));
+  document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${button.dataset.tab}`));
+  window.requestAnimationFrame(drawRoomVisuals);
+}));
+
+elements.period.addEventListener('change', () => refreshHistorical().catch((error) => logEvent(` Analytics refresh failed: ${error.message}`, 'critical')));
+document.querySelector('#clear-log').addEventListener('click', () => elements.log.replaceChildren());
+document.querySelector('#reset-database').addEventListener('click', async () => {
+  if (!window.confirm('Reset all historical demo events? Live services will immediately start filling the database again.')) return;
+  try {
+    await getJson(`${API}/stats/reset`, { method: 'POST' });
+    model.history = {};
+    model.heatmaps = {};
+    await refreshHistorical();
+    logEvent(' Historical database reset completed.', 'success');
+  } catch (error) {
+    logEvent(` Database reset failed: ${error.message}`, 'critical');
   }
-}, 5000);
+});
+
+window.addEventListener('resize', () => window.requestAnimationFrame(drawRoomVisuals));
+initialize();
+window.setInterval(() => refreshHistorical().catch((error) => logEvent(` Analytics refresh failed: ${error.message}`, 'critical')), 15000);
 

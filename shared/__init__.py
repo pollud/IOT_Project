@@ -1,15 +1,9 @@
-"""Shared package containing common models, MQTT client utilities, topic schemas, and configuration helpers."""
+"""Shared contracts used by every platform microservice."""
 
-from .models import (
-    BadgePositionEvent, BadgeSafetyEvent, EnvironmentEvent, 
-    BatteryEvent, PropEvent, RoomCommand, AlertEvent, 
-    GameStatus, HeartbeatEvent, SessionEndedEvent, ConfigUpdateEvent
-)
-from .topics import build_topic
-from .utils import to_json, from_json
-from .config import load_config
-from .constants import *
-from .fsm_schema import RoomStrategySchema, validate_strategy
-from .events import *
-from .mqtt import MQTTClient
+from shared.catalog_client import CatalogClient as CatalogClient
+from shared.mqtt import MQTTClient as MQTTClient
+from shared.senml import loads as load_senml
+from shared.senml import make_pack as make_senml_pack
+
+__all__ = ["CatalogClient", "MQTTClient", "load_senml", "make_senml_pack"]
 

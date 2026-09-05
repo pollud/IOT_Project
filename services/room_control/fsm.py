@@ -1,151 +1,215 @@
-"""Finite State Machine engine controlling escape room state progression and transitions."""
+"""Recoverable, thread-safe finite state machine for one game room."""
 
+from __future__ import annotations
+
+import logging
 import threading
-from scheduler import Scheduler
-from actions import ActionExecutor
+import time
+import uuid
+from typing import Any
+
+from services.room_control.actions import ActionExecutor
+from services.room_control.scheduler import Scheduler
+from shared.fsm_schema import validate_strategy
+from shared.models import GameStatus, SessionEvent, TransitionEvent
+from shared.topics import game_status, game_transition, session
+
+LOGGER = logging.getLogger("room_fsm")
+
 
 class RoomFSM:
-    """Thread-safe Finite State Machine managing room state transitions based on prop events and timers."""
-
-    def __init__(self, room_id: str, strategy: dict, mqtt_client):
-        """Initialize RoomFSM instance.
-
-        Args:
-            room_id (str): Room identifier.
-            strategy (dict): Validated strategy configuration dictionary.
-            mqtt_client: Instance of MQTTClient.
-        """
+    def __init__(
+        self,
+        room_id: str,
+        strategy: dict[str, Any],
+        mqtt_client,
+        recovered_status: dict[str, Any] | None = None,
+        clock=time.time,
+    ) -> None:
+        validate_strategy(strategy)
+        if strategy["room_id"] != room_id:
+            raise ValueError("Strategy room_id does not match controller room_id")
         self.room_id = room_id
         self.mqtt = mqtt_client
-        self.action_executor = ActionExecutor(self.mqtt, room_id)
-        self.scheduler = Scheduler(self)
-        self.lock = threading.Lock()
-        self.load_strategy(strategy)
-        
-    def load_strategy(self, strategy: dict):
-        """Load or reload strategy definition, cancel active timers, publish current status, and enter initial state.
+        self.clock = clock
+        self.lock = threading.RLock()
+        self.scheduler = Scheduler()
+        self.actions = ActionExecutor(mqtt_client, room_id)
+        self.strategy = strategy
+        self.states = strategy["states"]
+        self.version = strategy["version"]
+        self._completion_published = False
+        self.recovered = self._can_recover(recovered_status)
 
-        Args:
-            strategy (dict): Room strategy dictionary.
-        """
+        now = self.clock()
+        if self.recovered:
+            status = recovered_status or {}
+            self.current_state = str(status["current_state"])
+            self.session_id = str(status["session_id"])
+            self.started_at = float(status["started_at"])
+            self.state_entered_at = float(status.get("state_entered_at", now))
+            self.completed = bool(status.get("completed", False))
+            self._completion_published = self.completed
+        else:
+            self.current_state = strategy["initial_state"]
+            self.session_id = self._new_session_id()
+            self.started_at = now
+            self.state_entered_at = now
+            self.completed = False
+
+    def _can_recover(self, status: dict[str, Any] | None) -> bool:
+        return bool(
+            status
+            and status.get("strategy_version") == self.version
+            and status.get("current_state") in self.states
+            and status.get("session_id")
+            and status.get("started_at")
+        )
+
+    def _new_session_id(self) -> str:
+        return f"{self.room_id}-{uuid.uuid4().hex[:12]}"
+
+    def start(self) -> None:
         with self.lock:
-            self.strategy = strategy
-            self.states = strategy.get("states", {})
-            self.current_state = strategy.get("initial_state")
-            self.version = strategy.get("version")
-            print(f"[{self.room_id}] Loaded strategy version {self.version}")
-            self.scheduler.cancel_all()
-            
-            import json
-            self.mqtt.publish(f"room/{self.room_id}/status", {"room_id": self.room_id, "current_state": self.current_state}, retain=True)
-            
-            self._enter_state(self.current_state)
+            if self.recovered:
+                LOGGER.info("[%s] recovered session %s in state %s", self.room_id, self.session_id, self.current_state)
+                self._schedule_timed_transitions(recovery=True)
+                self.publish_status()
+                return
+            self._publish_session("started")
+            self._enter_state(self.current_state, execute_actions=True)
 
-    def restore_state(self, state_name: str):
-        """Restore FSM state from retained status message on reconnect.
+    def close(self) -> None:
+        self.scheduler.cancel_all()
 
-        Args:
-            state_name (str): Target state name to restore.
-        """
+    def _publish_session(self, event: str) -> None:
+        now = self.clock()
+        payload = SessionEvent(
+            room_id=self.room_id,
+            session_id=self.session_id,
+            timestamp=now,
+            duration_seconds=(now - self.started_at) if event == "ended" else None,
+            success=self.completed if event == "ended" else None,
+        )
+        self.mqtt.publish(session(self.room_id, event), payload, qos=1)
+
+    def publish_status(self) -> None:
+        now = self.clock()
+        payload = GameStatus(
+            room_id=self.room_id,
+            session_id=self.session_id,
+            current_state=self.current_state,
+            strategy_version=self.version,
+            started_at=self.started_at,
+            state_entered_at=self.state_entered_at,
+            updated_at=now,
+            completed=self.completed,
+        )
+        self.mqtt.publish(game_status(self.room_id), payload, qos=1, retain=True)
+
+    def _schedule_timed_transitions(self, recovery: bool = False) -> None:
+        definition = self.states[self.current_state]
+        for index, transition in enumerate(definition["transitions"]):
+            if transition["trigger"] != "time":
+                continue
+            duration = float(transition["duration_seconds"])
+            if recovery:
+                duration = max(0.05, duration - max(0.0, self.clock() - self.state_entered_at))
+            from_state = self.current_state
+            target_state = transition["target_state"]
+            self.scheduler.schedule(
+                f"{from_state}:{index}",
+                duration,
+                lambda source=from_state, target=target_state: self.time_transition(source, target),
+            )
+
+    def _enter_state(self, state_name: str, execute_actions: bool) -> None:
+        LOGGER.info("[%s] entering %s", self.room_id, state_name)
+        if execute_actions:
+            for action in self.states[state_name]["on_enter"]:
+                self.actions.execute(action)
+        terminal = bool(self.states[state_name].get("is_terminal"))
+        if terminal and not self._completion_published:
+            self.completed = True
+            self._completion_published = True
+            self.publish_status()
+            self._publish_session("ended")
+            return
+        self.publish_status()
+        self._schedule_timed_transitions()
+
+    def _perform_transition(self, target_state: str, trigger: str, trigger_id: str | None) -> None:
+        previous = self.current_state
+        now = self.clock()
+        elapsed = max(0.0, now - self.state_entered_at)
+        self.scheduler.cancel_all()
+        self.current_state = target_state
+        self.state_entered_at = now
+        transition = TransitionEvent(
+            room_id=self.room_id,
+            session_id=self.session_id,
+            from_state=previous,
+            to_state=target_state,
+            trigger=trigger,
+            trigger_id=trigger_id,
+            elapsed_seconds=elapsed,
+            timestamp=now,
+        )
+        self.mqtt.publish(game_transition(self.room_id), transition, qos=1)
+        self._enter_state(target_state, execute_actions=True)
+
+    def event_transition(self, prop_id: str, interaction_type: str, value: str) -> bool:
         with self.lock:
-            if state_name in self.states and state_name != self.current_state:
-                print(f"[{self.room_id}] Restoring retained FSM state: {state_name}")
-                self.current_state = state_name
-                self.scheduler.cancel_all()
-                self._enter_state(state_name)
-            
-    def _enter_state(self, state_name: str):
-        """Execute on_enter actions and register time-based transitions for state_name.
-
-        Args:
-            state_name (str): Name of state being entered.
-        """
-        print(f"[{self.room_id}] Entering state: {state_name}")
-        state_def = self.states.get(state_name, {})
-        actions = state_def.get("on_enter", [])
-        for act in actions:
-            self.action_executor.execute(act)
-            
-        transitions = state_def.get("transitions", [])
-        for t in transitions:
-            if t.get("trigger") == "time":
-                self.scheduler.schedule(state_name, t.get("duration_seconds", 0), t.get("target_state"))
-                
-    def event_transition(self, event_type: str, prop_id: str, interaction_type: str, value: str) -> bool:
-        """Evaluate incoming prop event against current state transitions and execute matching transition if found.
-
-        Args:
-            event_type (str): Type of event (e.g. "PropEvent").
-            prop_id (str): Identifier of prop originating event.
-            interaction_type (str): Type of interaction (e.g. "solved", "button_press").
-            value (str): Expected event payload value.
-
-        Returns:
-            bool: True if transition occurred, False otherwise.
-        """
-        with self.lock:
-            state_def = self.states.get(self.current_state, {})
-            transitions = state_def.get("transitions", [])
-            for t in transitions:
-                if t.get("trigger") == "event":
-                    if t.get("event_type") == event_type and \
-                       t.get("prop_id") == prop_id and \
-                       t.get("interaction_type") == interaction_type and \
-                       str(t.get("value")) == str(value):
-                        self._perform_transition(t.get("target_state"))
-                        return True
+            if self.completed:
+                return False
+            for transition in self.states[self.current_state]["transitions"]:
+                if (
+                    transition["trigger"] == "event"
+                    and transition["event_type"] == "PropEvent"
+                    and transition["prop_id"] == prop_id
+                    and transition["interaction_type"] == interaction_type
+                    and str(transition["value"]) == str(value)
+                ):
+                    self._perform_transition(transition["target_state"], "event", prop_id)
+                    return True
             return False
 
-    def time_transition(self, from_state: str, target_state: str):
-        """Execute time-triggered state transition if currently in from_state.
-
-        Args:
-            from_state (str): State from which timer was started.
-            target_state (str): Destination state upon timeout.
-        """
+    def time_transition(self, from_state: str, target_state: str) -> bool:
         with self.lock:
-            if self.current_state == from_state:
-                print(f"[{self.room_id}] Time transition {from_state} -> {target_state}")
-                self._perform_transition(target_state)
+            if self.completed or self.current_state != from_state:
+                return False
+            self._perform_transition(target_state, "time", None)
+            return True
 
-    def force_unlock(self):
-        """Force transition room to terminal/cleared state (operator emergency override)."""
+    def reset_room(self) -> None:
         with self.lock:
-            terminal_candidates = [
-                "game_cleared", "core_unlocked", "mainframes_accessible",
-                "escape_pod_ready", "gate_unlocked", "temple_sealed",
-                "tomb_opened", "curse_lifted", "patient_escaped",
-                "case_solved", "champion_cleared"
-            ]
-            target_state = None
-            for cand in terminal_candidates:
-                if cand in self.states:
-                    target_state = cand
-                    break
-            if not target_state:
-                state_keys = list(self.states.keys())
-                target_state = state_keys[-1] if state_keys else "game_cleared"
-                
-            print(f"[{self.room_id}] Force Unlocking -> {target_state}")
-            self._perform_transition(target_state)
+            self.scheduler.cancel_all()
+            now = self.clock()
+            self.current_state = self.strategy["initial_state"]
+            self.session_id = self._new_session_id()
+            self.started_at = now
+            self.state_entered_at = now
+            self.completed = False
+            self._completion_published = False
+            self.recovered = False
+            self._publish_session("started")
+            self._enter_state(self.current_state, execute_actions=True)
 
-    def reset_room(self):
-        """Reset room FSM back to initial entrance state."""
+    def force_unlock(self) -> None:
         with self.lock:
-            initial = self.strategy.get("initial_state", "entrance")
-            print(f"[{self.room_id}] Resetting Room -> {initial}")
-            self._perform_transition(initial)
+            self.actions.execute({"action": "unlockDoor", "target": "main_door"})
 
-    def _perform_transition(self, new_state: str):
-        """Perform transition to new_state, cancel active timers, publish retained status, and enter new state.
-
-        Args:
-            new_state (str): Target state name.
-        """
-        print(f"[{self.room_id}] Transition: {self.current_state} -> {new_state}")
-        self.current_state = new_state
-        self.scheduler.cancel_all()
-        import json
-        self.mqtt.publish(f"room/{self.room_id}/status", {"room_id": self.room_id, "current_state": new_state}, retain=True)
-        self._enter_state(new_state)
-
+    def load_strategy(self, strategy: dict[str, Any]) -> None:
+        validate_strategy(strategy)
+        if strategy["room_id"] != self.room_id:
+            raise ValueError("Cannot load a strategy for another room")
+        with self.lock:
+            self.scheduler.cancel_all()
+            self.strategy = strategy
+            self.states = strategy["states"]
+            self.version = strategy["version"]
+            if self.current_state not in self.states:
+                self.reset_room()
+                return
+            self._schedule_timed_transitions(recovery=True)
+            self.publish_status()

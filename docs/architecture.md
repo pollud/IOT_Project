@@ -1,44 +1,78 @@
-# Architecture Overview
+# Architecture
 
-## Objective
-Define the architecture for the IoT escape-room platform. The platform is built around an asynchronous MQTT event bus, CherryPy microservices, embedded SQLite timeseries storage, autonomous Room Control FSMs, a safety supervisor, and a unified Web Dashboard acting as the **Game Master Command Center**.
+## Design decisions
 
-## Component Overview
-- **Game Catalog (`:8080`)**: Single source of truth for rooms, devices, configurations, and dynamic discovery. Provides REST APIs and MQTT config update broadcasts.
-- **Room Connector (`:8081`)**: Interfacing service handling room environment telemetry (temperature, humidity) and electronic actuator relays (mag-locks, lights, sound).
-- **Badge Connector (`:8082`)**: Wearable telemetry service tracking player spatial coordinates, battery levels, and fall detection.
-- **Prop Connector (`:8083`)**: Interactive puzzle prop service handling player inputs (buttons, RFID sensors, keypads).
-- **Room Control FSM**: Decentralized, autonomous state machine managing game progress, puzzle progression, and time-based schedules.
-- **Safety Monitor**: Independent, high-priority safety supervisor triggering emergency mag-lock overrides and alarms.
-- **TimeSeriesDB Adapter**: High-throughput SQLite persistence layer with in-memory batch writing and automated telemetry retention pruning.
-- **Analytics Engine (`:8084`)**: Post-game analytics engine computing solve durations, puzzle bottlenecks, safety scores, and spatial heatmaps.
-- **Web Dashboard (`:8087`)**: Single unified **Game Master Command Center** providing real-time Server-Sent Events (SSE) streaming, live room matrices, actuator controls, manual puzzle triggers, alert banners, and analytics visualization.
+The platform follows the proposal's microservice pattern and runs one Room
+Control, Environment Connector, Badge Connector, Prop Connector and Room
+Actuator Connector instance per room. Each instance has a unique MQTT client ID
+containing its room ID.
 
-## Directory Structure
-```
-project/
-  docs/
-  shared/
-  config/
-  services/
-    catalog/
-    room_connector/
-    badge_connector/
-    prop_connector/
-    room_control/
-    safety_monitor/
-    timeseries_adapter/
-    analytics/
-    web_dashboard/
-  simulators/
-  tests/
-    phase_gates/
-    integration/
-    stress/
-  docker-compose.yml
-  README.md
+Node-RED, Telegram and ThingSpeak are replaced by one robust Web Dashboard:
+
+- Node-RED replacement: room state, device telemetry and manual MQTT controls;
+- Telegram replacement: live critical alert banners and a persistent alert feed;
+- ThingSpeak replacement: TimeSeries storage, historical charts, heatmaps and
+  post-game analytics.
+
+## Information flow
+
+```mermaid
+flowchart LR
+    Catalog["Catalog CRUD"] -->|REST config| Connectors["Device connectors"]
+    Catalog -->|REST strategy| FSM["Room FSM"]
+    Connectors -->|SenML / MQTT| Broker["MQTT broker"]
+    Broker --> FSM
+    FSM -->|commands / MQTT| Broker
+    Broker --> Safety["Safety"]
+    Safety -->|alert + override| Broker
+    Broker --> Persistence["TimeSeries"]
+    Persistence -->|REST events| Analytics["Analytics"]
+    Broker --> Dashboard["Dashboard SSE"]
+    Analytics -->|REST stats| Dashboard
 ```
 
-## Data Storage
-- TimeSeriesDB uses **SQLite** (`data/events.db`) with composite indexes on `(topic, timestamp)` and batch insert optimizations (`executemany`).
-- Strategy rulesets and service registrations are persisted in `config/`.
+SQLite is private to TimeSeries. Analytics obtains historical events only over
+REST. Strategy JSON files are private seed/persistence data of Catalog; Room
+Control obtains strategies only over REST. These boundaries satisfy the rule
+against inter-service information exchange through local files.
+
+## Logical microservices
+
+| Microservice | Input | Processing | Output |
+| --- | --- | --- | --- |
+| Game Catalog | REST CRUD, MQTT presence | validates correlations and strategies | REST discovery, retained config update |
+| Environment Connector | simulated or BME680 readings | calibration and SenML encoding | MQTT telemetry, REST calibration/health |
+| Badge Connector | simulated or ESP32/UWB/IMU data | random walk, battery and fall detection | MQTT SenML, REST battery/fall test |
+| Prop Connector | RFID/button/capacitive/rotary inputs | validates configured prop and sensor | MQTT SenML interaction/health, REST trigger |
+| Room Actuator Connector | room/emergency MQTT commands | controls lock, light and audio state | REST state/command history, presence |
+| Room Control | prop events, commands, Catalog update | recoverable FSM and timers | actuator commands, status, transitions, sessions |
+| Safety Monitor | badge safety and environment SenML | threshold/cooldown rules | critical alert and room-specific emergency override |
+| TimeSeries Adapter | canonical MQTT topics | validates, queues, batches, retains | SQLite-owned storage and REST event API |
+| Analytics | TimeSeries REST events, session-end MQTT | historical statistics | REST statistics and MQTT summary |
+| Web Dashboard | MQTT live events, Catalog/Analytics REST | live cache, SSE bridge and validation | browser GUI and validated MQTT commands |
+
+## Scalability
+
+Room and device identifiers are parameters, not hardcoded branches. A room
+record correlates dimensions, environment sensor, badges, props and actuators.
+Compose demonstrates two concurrent contexts. A production orchestrator can
+instantiate additional room-scoped containers from the same images.
+
+## Persistence and recovery
+
+- Mosquitto persists retained status and LWT state.
+- Catalog atomically owns and persists its registry/configuration volume.
+- TimeSeries uses WAL-mode SQLite, per-operation connections, batch inserts,
+  indexed queries, retention pruning and graceful queue drain.
+- Room Control subscribes before initialization, consumes retained state, checks
+  the strategy version and restores session/state/timestamps without replaying
+  actuator actions or publishing a duplicate session end.
+
+## Security posture for the demo
+
+Host ports bind to loopback. APIs do not enable wildcard CORS. The Dashboard
+adds CSP, frame, referrer and MIME-sniffing headers. Database reset is POST-only
+and requires an explicit confirmation at TimeSeries. Production deployment
+should additionally enable Mosquitto credentials/TLS and reverse-proxy
+authentication.
+

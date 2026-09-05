@@ -1,11 +1,12 @@
 """Phase Gate 05 Verification Test: Validates Room Connector service environmental telemetry publishing and room/emergency actuator command logging."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_5():
     """Verify room_connector environmental telemetry output, command processing, and REST endpoint (/actuator/health)."""
@@ -33,8 +34,8 @@ def verify_phase_5():
 
     # Subscribe to environment messages
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-    from shared.mqtt import MQTTClient
     from shared.models import RoomCommand
+    from shared.mqtt import MQTTClient
     
     env_received = False
     
@@ -77,8 +78,8 @@ def verify_phase_5():
     r = requests.get("http://localhost:8081/actuator/health")
     logs = r.json().get("logs", [])
     
-    has_room = any(l.get("type") == "room_command" for l in logs)
-    has_emerg = any(l.get("type") == "emergency" for l in logs)
+    has_room = any(entry.get("type") == "room_command" for entry in logs)
+    has_emerg = any(entry.get("type") == "emergency" for entry in logs)
     
     if not has_room:
         print("FAIL: Room command was not logged by room_connector.")

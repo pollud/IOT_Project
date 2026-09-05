@@ -1,19 +1,19 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
-COPY services/web_dashboard/package*.json ./
-RUN npm install
-COPY services/web_dashboard/ .
+COPY services/web_dashboard/package.json services/web_dashboard/package-lock.json ./
+RUN npm ci
+COPY services/web_dashboard/ ./
 RUN npm run build
 
-FROM python:3.9-slim
+FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-# Copy the built Vite app
-COPY --from=build /app/dist ./dist
-# Copy the shared MQTT library
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY shared /app/shared
-# Copy the server file
-COPY services/web_dashboard/server.py .
+COPY services/web_dashboard/server.py /app/server.py
+COPY --from=build /app/dist /app/dist
 EXPOSE 8087
+USER 65532:65532
 CMD ["python", "server.py"]
+

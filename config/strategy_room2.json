@@ -1,75 +1,53 @@
 {
   "room_id": "room2",
-  "version": "re_mansion_v1",
+  "name": "Spencer Mansion Outbreak",
+  "version": "spencer_mansion_v2",
   "initial_state": "mansion_hall",
   "states": {
     "mansion_hall": {
       "on_enter": [
-        {
-          "action": "publishStatus",
-          "status": "started"
-        }
+        {"action": "lockDoor", "target": "main_door"},
+        {"action": "setLights", "color": "mansion_dim"},
+        {"action": "publishStatus", "status": "started"}
       ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "typewriter",
-          "interaction_type": "button",
-          "value": "pressed",
-          "target_state": "save_room"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "typewriter", "interaction_type": "button", "value": "pressed", "target_state": "save_room"}
       ]
     },
     "save_room": {
       "on_enter": [
-        {
-          "action": "playAudio",
-          "track": "save_theme.mp3"
-        }
+        {"action": "playAudio", "track": "save_theme.mp3"}
       ],
       "transitions": [
-        {
-          "trigger": "time",
-          "duration_seconds": 2,
-          "target_state": "hallway"
-        }
+        {"trigger": "time", "duration_seconds": 2, "target_state": "hallway"}
       ]
     },
     "hallway": {
-      "on_enter": [],
+      "on_enter": [
+        {"action": "setLights", "color": "corridor_red"}
+      ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "crest_socket",
-          "interaction_type": "rfid",
-          "value": "sun_crest",
-          "target_state": "courtyard"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "crest_socket", "interaction_type": "rfid", "value": "sun_crest", "target_state": "courtyard"}
       ]
     },
     "courtyard": {
-      "on_enter": [],
+      "on_enter": [
+        {"action": "playAudio", "track": "courtyard_ambience.mp3"}
+      ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "crank_hole",
-          "interaction_type": "rotary",
-          "value": "turned",
-          "target_state": "game_cleared"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "crank_hole", "interaction_type": "rotary", "value": "turned", "target_state": "game_cleared"}
       ]
     },
     "game_cleared": {
+      "is_terminal": true,
       "on_enter": [
-        {
-          "action": "publishStatus",
-          "status": "completed"
-        }
+        {"action": "unlockDoor", "target": "main_door"},
+        {"action": "setLights", "color": "safe_white"},
+        {"action": "playAudio", "track": "escape_success.mp3"},
+        {"action": "publishStatus", "status": "completed"}
       ],
       "transitions": []
     }
   }
 }
+

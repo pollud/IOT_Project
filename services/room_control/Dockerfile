@@ -1,9 +1,10 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY shared /app/shared
 COPY services/room_control /app/services/room_control
-COPY config /app/config
-ENV PYTHONPATH=/app
+USER 65532:65532
 CMD ["python", "services/room_control/controller.py"]
+

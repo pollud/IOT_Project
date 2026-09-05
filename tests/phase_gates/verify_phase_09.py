@@ -1,10 +1,11 @@
 """Phase Gate 09 Verification Test: Validates Room FSM Controller strategy loading, hot-swap reconfiguration, event transitions, timed transitions, and completion status."""
 
-import os
-import sys
-import subprocess
-import time
 import json
+import os
+import subprocess
+import sys
+import time
+
 
 def verify_phase_9():
     """Verify room_control FSM engine execution, strategy hot-swapping, prop interaction triggers, timer scheduling, and game completion events."""

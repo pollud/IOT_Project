@@ -1,116 +1,44 @@
-# MQTT API Documentation
+# MQTT API
 
-## System Level Topics
+The authoritative topic table is [mqtt_topics.md](mqtt_topics.md). This document
+defines behavioral guarantees.
 
-### `system/alerts`
-- **Description**: System-wide safety or error alerts.
-- **Publisher**: `safety_monitor`
-- **Subscriber**: `web_dashboard`, `timeseries_adapter`
-- **Payload**:
-  ```json
+## Guarantees
+
+- MQTT client IDs are validated and unique per service/room instance.
+- QoS 0 is used for replaceable high-frequency telemetry.
+- QoS 1 is used for commands, safety, transitions and session lifecycle events.
+- Current FSM state, Catalog configuration updates and service presence are
+  retained.
+- Every Last Will publishes `status=offline` on `status/<client_id>`.
+- Every room-scoped topic carries the room ID in a fixed segment, allowing
+  storage and analytics correlation without inspecting arbitrary text.
+
+## Prop interaction
+
+Topic: `game/room1/prop/pipboy/interaction`
+
+```json
+[
   {
-    "alert_type": "fall",
-    "message": "Fall detected for b1",
-    "source": "room1"
-  }
-  ```
+    "bn": "urn:escape-room:room1:prop:pipboy:",
+    "bt": 1760000000.0,
+    "n": "interaction_type",
+    "vs": "rfid"
+  },
+  {"n": "value", "vs": "scanned"}
+]
+```
 
-## Room Level Topics
+Room Control checks all of `prop_id`, `interaction_type` and `value` against the
+current FSM state. A non-matching but valid event is logged and ignored.
 
-### `room/<room_id>/environment`
-- **Description**: Environment telemetry (temperature, humidity).
-- **Publisher**: `room_connector`
-- **Subscriber**: `safety_monitor`, `timeseries_adapter`, `web_dashboard`
-- **Payload**:
-  ```json
-  {
-    "temperature": 22.5,
-    "humidity": 45.0
-  }
-  ```
+## Safety path
 
-### `room/<room_id>/badge/<badge_id>/position`
-- **Description**: Player location tracking.
-- **Publisher**: `badge_connector`
-- **Subscriber**: `timeseries_adapter`, `web_dashboard`
-- **Payload**:
-  ```json
-  {
-    "badge_id": "b1",
-    "x": 3.5,
-    "y": 7.2
-  }
-  ```
+A `fall_detected=true` SenML record produces two QoS 1 messages:
 
-### `room/<room_id>/prop/<prop_id>/event`
-- **Description**: Interaction event with a physical prop.
-- **Publisher**: `prop_connector`, `web_dashboard`
-- **Subscriber**: `room_control`, `timeseries_adapter`
-- **Payload**:
-  ```json
-  {
-    "prop_id": "prop1",
-    "interaction_type": "button",
-    "value": "pressed"
-  }
-  ```
+1. `system/alerts` for live GUI awareness and historical persistence;
+2. `command/emergency/<room>` for an independent actuator unlock.
 
-### `room/<room_id>/status`
-- **Description**: Current state of the Room Control FSM.
-- **Publisher**: `room_control`
-- **Subscriber**: `web_dashboard`, `timeseries_adapter`
-- **Payload**:
-  ```json
-  {
-    "room_id": "room1",
-    "current_state": "playing"
-  }
-  ```
+The emergency path does not depend on Room Control.
 
-## Command Topics
-
-### `command/room/<room_id>`
-- **Description**: Commands sent to a specific room to manually override state or hardware.
-- **Publisher**: `web_dashboard`
-- **Subscriber**: `room_control`, `room_connector`
-- **Payload**:
-  ```json
-  {
-    "room_id": "room1",
-    "command": "unlockDoor"
-  }
-  ```
-
-## Game / Session Topics
-
-### `game/<room_id>/session/started`
-- **Description**: Signals the start of an escape room session.
-- **Publisher**: `room_control`
-- **Subscriber**: `timeseries_adapter`
-- **Payload**:
-  ```json
-  {
-    "room_id": "room1"
-  }
-  ```
-
-### `game/<room_id>/session/ended`
-- **Description**: Signals the end of a session, triggering analytics.
-- **Publisher**: `room_control`
-- **Subscriber**: `timeseries_adapter`, `analytics`
-- **Payload**:
-  ```json
-  {
-    "room_id": "room1",
-    "duration": 3600,
-    "status": "won|lost"
-  }
-  ```
-
-## Configuration Topics
-
-### `catalog/<room_id>/config-update`
-- **Description**: Hot-reloads room strategies.
-- **Publisher**: `catalog`
-- **Subscriber**: `room_control`
-- **Payload**: Full JSON strategy document.

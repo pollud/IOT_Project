@@ -1,11 +1,12 @@
 """Phase Gate 13 Verification Test: Validates Web Dashboard manual command gateway (/api/command) and latency."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_13():
     """Verify web_dashboard HTTP command endpoint, latency, and MQTT command delivery."""

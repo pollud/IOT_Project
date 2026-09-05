@@ -1,9 +1,10 @@
 """Utility helpers for JSON serialization/deserialization and resilience patterns (CircuitBreaker)."""
 
+import dataclasses
 import json
 import time
-import dataclasses
 from typing import Any
+
 
 def to_json(obj: Any) -> str:
     """Serialize an object or dataclass instance into a JSON string.

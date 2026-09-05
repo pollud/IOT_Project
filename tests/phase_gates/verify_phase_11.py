@@ -1,13 +1,14 @@
 """Phase Gate 11 Verification Test: Validates Analytics Engine service REST API endpoints and SQL aggregate calculation for prop interaction usage."""
 
-import os
-import sys
-import subprocess
-import time
-import requests
 import json
-import sqlite3
+import os
 import random
+import subprocess
+import sys
+import time
+
+import requests
+
 
 def verify_phase_11():
     """Verify analytics service REST API health and prop usage stats calculation from SQLite events table."""

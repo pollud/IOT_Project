@@ -1,105 +1,208 @@
-"""Badge Connector microservice managing badge telemetry, heartbeat presence, and fall simulation API endpoints."""
+"""Badge Device Connector: positioning, battery, heartbeat and fall detection."""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+import threading
+import time
+from dataclasses import dataclass
+from typing import Any
 
 import cherrypy
-import os
-import time
-import threading
-import random
+
+from shared.catalog_client import CatalogClient
+from shared.config import env_float, validate_identifier
+from shared.http import server_config
 from shared.mqtt import MQTTClient
-from shared.models import BadgePositionEvent, BadgeSafetyEvent, BatteryEvent, HeartbeatEvent
-from shared.topics import build_topic
+from shared.senml import make_pack
+from shared.topics import badge
+
+LOGGER = logging.getLogger("badge_connector")
+
+
+@dataclass
+class BadgeState:
+    badge_id: str
+    player: str
+    x: float
+    y: float
+    battery: float = 100.0
+
 
 class BadgeConnector:
-    """Connector handling player/staff badge telemetry, periodic presence updates, and emergency fall detection events."""
-
-    def __init__(self, room_id: str, badge_id: str):
-        """Initialize BadgeConnector, connect to MQTT broker, and start periodic status publication thread.
-
-        Args:
-            room_id (str): Room identifier.
-            badge_id (str): Badge identifier.
-        """
-        self.room_id = room_id
-        self.badge_id = badge_id
-        self.total_badges = 80
-        self.active_badges = 80
-        
-        broker = os.getenv("MQTT_BROKER", "mosquitto")
+    def __init__(self, room_id: str, catalog: CatalogClient) -> None:
+        self.room_id = validate_identifier(room_id, "room_id")
+        self.catalog = catalog
+        room = catalog.room(self.room_id)
+        dimensions = room["dimensions"]
+        self.width = float(dimensions["width_m"])
+        self.height = float(dimensions["height_m"])
+        self.interval = env_float("PUBLISH_INTERVAL", 2.0, minimum=0.2)
+        # Deterministic simulation data; this generator is never used for security.
+        self.random = random.Random(f"badge:{self.room_id}")  # nosec B311
+        self.badges: dict[str, BadgeState] = {}
+        for index, definition in enumerate(room["badges"]):
+            badge_id = validate_identifier(definition["badge_id"], "badge_id")
+            self.badges[badge_id] = BadgeState(
+                badge_id=badge_id,
+                player=str(definition.get("player", badge_id)),
+                x=min(self.width, 1.0 + index),
+                y=min(self.height, 1.0 + index),
+            )
+        if not self.badges:
+            raise ValueError(f"Room {self.room_id} has no configured badges")
+        self.lock = threading.RLock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
         self.mqtt = MQTTClient(
-            client_id="badge_connector",
-            broker=broker,
-            heartbeat_topic="status/badge_connector",
-            heartbeat_interval=5,
-            heartbeat_payload={
-                "service": "badge_connector",
-                "status": "online",
-                "badges_active": self.active_badges,
-                "badges_total": self.total_badges,
-                "timestamp": time.time()
-            }
+            f"badge_connector_{self.room_id}",
+            heartbeat_payload=lambda: {
+                "room_id": self.room_id,
+                "badges_active": len(self.badges),
+                "badges_total": len(self.badges),
+            },
         )
-        
-        connected = False
-        while not connected:
-            try:
-                self.mqtt.start()
-                time.sleep(1)
-                if self.mqtt.connected:
-                    connected = True
-                else:
-                    self.mqtt.stop()
-                    time.sleep(1)
-            except Exception as e:
-                print(f"Waiting for mosquitto... {e}")
-                time.sleep(2)
-                
-        t = threading.Thread(target=self.simulation_loop, daemon=True)
-        t.start()
-        
-    def simulation_loop(self):
-        """Background thread publishing periodic status updates regarding active/total badge counts to MQTT status/badge_connector topic."""
-        while True:
-            self.mqtt.publish("status/badge_connector", {
-                "service": "badge_connector",
-                "status": "online",
-                "badges_active": self.active_badges,
-                "badges_total": self.total_badges,
-                "timestamp": time.time()
-            }, qos=1, retain=True)
-            time.sleep(5)
-            
-    def force_fall(self):
-        """Publish a forced fall detection safety event for testing or simulation purposes."""
-        fall = BadgeSafetyEvent(badge_id=self.badge_id, fall_detected=True)
-        self.mqtt.publish(build_topic(self.room_id, "badge", "safety", self.badge_id), fall, qos=1)
 
-class BadgeRoute:
-    """REST Controller for triggering badge operations (e.g. forcing fall detection)."""
+    def start(self) -> None:
+        service_name = f"badge_connector_{self.room_id}"
+        self.catalog.register_service(
+            name=service_name,
+            description="ESP32 badge positioning and safety connector",
+            endpoint=os.getenv("SERVICE_URL", f"http://{service_name}:8083"),
+            room_id=self.room_id,
+            mqtt_topics=[f"game/{self.room_id}/badge/+/+"],
+        )
+        for state in self.badges.values():
+            self.catalog.register_device(
+                device_id=state.badge_id,
+                kind="player_badge",
+                room_id=self.room_id,
+                connector=service_name,
+                metadata={"player": state.player, "sensors": ["uwb_position", "accelerometer", "battery"]},
+            )
+        self.mqtt.start()
+        self._thread = threading.Thread(target=self._simulation_loop, name=f"badges-{self.room_id}", daemon=True)
+        self._thread.start()
 
-    def __init__(self, connector: BadgeConnector):
-        """Initialize BadgeRoute controller.
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+        self.mqtt.stop()
 
-        Args:
-            connector (BadgeConnector): Instance of BadgeConnector.
-        """
+    def _move(self, state: BadgeState) -> None:
+        state.x = min(self.width, max(0.0, state.x + self.random.uniform(-0.45, 0.45)))
+        state.y = min(self.height, max(0.0, state.y + self.random.uniform(-0.45, 0.45)))
+        state.battery = max(0.0, state.battery - self.random.uniform(0.002, 0.015))
+
+    def publish_badge(self, state: BadgeState) -> None:
+        now = time.time()
+        base = f"urn:escape-room:{self.room_id}:badge:{state.badge_id}:"
+        self.mqtt.publish(
+            badge(self.room_id, state.badge_id, "position"),
+            make_pack(base, [("x", round(state.x, 3), "m"), ("y", round(state.y, 3), "m")], now),
+            qos=0,
+        )
+        self.mqtt.publish(
+            badge(self.room_id, state.badge_id, "battery"),
+            make_pack(base, [("battery", round(state.battery, 2), "%")], now),
+            qos=0,
+        )
+        self.mqtt.publish(
+            badge(self.room_id, state.badge_id, "heartbeat"),
+            make_pack(base, [("online", True, None)], now),
+            qos=0,
+        )
+
+    def _simulation_loop(self) -> None:
+        while not self._stop.is_set():
+            with self.lock:
+                states = list(self.badges.values())
+                for state in states:
+                    self._move(state)
+                    try:
+                        self.publish_badge(state)
+                    except RuntimeError:
+                        LOGGER.warning("Badge telemetry paused while MQTT is disconnected")
+                        break
+                    except Exception:
+                        LOGGER.exception("Badge telemetry failed for %s", state.badge_id)
+            self._stop.wait(self.interval)
+
+    def force_fall(self, badge_id: str) -> None:
+        badge_id = validate_identifier(badge_id, "badge_id")
+        if badge_id not in self.badges:
+            raise KeyError(badge_id)
+        self.mqtt.publish(
+            badge(self.room_id, badge_id, "safety"),
+            make_pack(
+                f"urn:escape-room:{self.room_id}:badge:{badge_id}:",
+                [("fall_detected", True, None), ("peak_acceleration", 2.8, "g")],
+            ),
+            qos=1,
+            wait=True,
+        )
+
+    def battery_snapshot(self) -> list[dict[str, Any]]:
+        with self.lock:
+            return [
+                {"badge_id": state.badge_id, "player": state.player, "battery_percent": round(state.battery, 2)}
+                for state in self.badges.values()
+            ]
+
+
+class Root:
+    def __init__(self, connector: BadgeConnector) -> None:
         self.connector = connector
-        
+
     @cherrypy.expose
     @cherrypy.tools.json_out()
-    def force_fall(self):
-        """POST/GET /force_fall endpoint to trigger a simulated fall event on the badge."""
-        self.connector.force_fall()
-        return {"status": "fall forced"}
+    def health(self):
+        return {
+            "status": "ok" if self.connector.mqtt.connected else "degraded",
+            "room_id": self.connector.room_id,
+            "badges": self.connector.battery_snapshot(),
+        }
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def battery(self, badge_id: str | None = None):
+        if cherrypy.request.method.upper() != "GET":
+            raise cherrypy.HTTPError(405, "GET required")
+        records = self.connector.battery_snapshot()
+        if badge_id:
+            records = [record for record in records if record["badge_id"] == badge_id]
+            if not records:
+                raise cherrypy.HTTPError(404, f"Unknown badge: {badge_id}")
+        return {"room_id": self.connector.room_id, "badges": records}
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def force_fall(self, badge_id: str | None = None):
+        if cherrypy.request.method.upper() != "POST":
+            raise cherrypy.HTTPError(405, "POST required")
+        selected = badge_id or next(iter(self.connector.badges))
+        try:
+            self.connector.force_fall(selected)
+        except KeyError as error:
+            raise cherrypy.HTTPError(404, f"Unknown badge: {error.args[0]}") from error
+        except ValueError as error:
+            raise cherrypy.HTTPError(400, str(error)) from error
+        return {"status": "published", "room_id": self.connector.room_id, "badge_id": selected}
+
+
+def main() -> None:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    catalog = CatalogClient()
+    catalog.wait_until_ready()
+    connector = BadgeConnector(os.getenv("ROOM_ID", "room1"), catalog)
+    connector.start()
+    cherrypy.engine.subscribe("stop", connector.stop)
+    cherrypy.config.update(server_config(8083))
+    cherrypy.quickstart(Root(connector))
+
 
 if __name__ == "__main__":
-    room_id = os.getenv("ROOM_ID", "room1")
-    badge_id = os.getenv("BADGE_ID", "b1")
-    connector = BadgeConnector(room_id, badge_id)
-    root = BadgeRoute(connector)
-    
-    cherrypy.config.update({
-        'server.socket_host': '0.0.0.0',
-        'server.socket_port': 8082,
-    })
-    cherrypy.quickstart(root)
-
+    main()

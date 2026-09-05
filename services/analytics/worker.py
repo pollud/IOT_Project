@@ -1,503 +1,489 @@
-"""Analytics worker microservice exposing REST API endpoints for room stats, prop usage, environmental metrics, safety scoring, and maintenance diagnostics."""
+"""Historical analytics engine consuming only the TimeSeries REST API."""
 
-import cherrypy
-import sqlite3
+from __future__ import annotations
+
+import logging
 import os
-import json
+import statistics
 import threading
 import time
-from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+from functools import wraps
+from typing import Any
 
-class AnalyticsRoute:
-    """Database query and data aggregation backend engine for Analytics REST endpoints."""
+import cherrypy
+import requests
 
-    def __init__(self):
-        """Initialize AnalyticsRoute with target SQLite database path from DB_PATH env var."""
-        self.db_path = os.getenv("DB_PATH", "/app/data/events.db")
-        
-    def get_conn(self) -> sqlite3.Connection:
-        """Create and return a new SQLite database connection.
+from shared.catalog_client import CatalogClient
+from shared.constants import DEFAULT_TIMESERIES_URL
+from shared.http import server_config
+from shared.mqtt import MQTTClient
+from shared.senml import values as senml_values
+from shared.topics import analytics_summary
 
-        Returns:
-            sqlite3.Connection: SQLite connection object.
-        """
-        return sqlite3.connect(self.db_path)
-        
-    def get_time_condition(self, period: str) -> str:
-        """Generate SQL WHERE condition snippet for time filtering based on period string.
+LOGGER = logging.getLogger("analytics")
 
-        Args:
-            period (str): Time period filter ("1h", "24h", "7d", or "all").
+PERIOD_SECONDS = {"1h": 3600, "24h": 86400, "7d": 604800, "30d": 2592000}
 
-        Returns:
-            str: SQL WHERE clause condition snippet.
-        """
-        if period == "1h":
-            return "timestamp >= datetime('now', '-1 hour')"
-        elif period == "24h":
-            return "timestamp >= datetime('now', '-24 hours')"
-        elif period == "7d":
-            return "timestamp >= datetime('now', '-7 days')"
-        return "1=1"
 
-    def stats_room(self, room_id: str, period: str = 'all') -> dict:
-        """Calculate average solve time and total session count for a room over a given period.
+def api_endpoint(function):
+    """Map validation and dependency failures to stable HTTP API errors."""
 
-        Args:
-            room_id (str): Room identifier.
-            period (str): Time period filter.
-
-        Returns:
-            dict: Room solve statistics dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        time_cond = self.get_time_condition(period)
-        
-        cursor.execute(f'''
-            SELECT AVG(json_extract(payload, '$.duration')), COUNT(*)
-            FROM events
-            WHERE (topic LIKE 'session/%/ended' OR topic LIKE 'game/%/session/ended')
-              AND json_extract(payload, '$.room_id') = ?
-              AND {time_cond}
-        ''', (room_id,))
-        row = cursor.fetchone()
-        
-        avg_solve_time = row[0] if row[0] is not None else 0
-        count = row[1] if row[1] is not None else 0
-        conn.close()
-        
-        return {"room_id": room_id, "avg_solve_time": round(avg_solve_time, 2), "total_sessions": count}
-        
-    def stats_prop(self, prop_id: str) -> dict:
-        """Query total interaction count for a specific puzzle prop.
-
-        Args:
-            prop_id (str): Prop identifier.
-
-        Returns:
-            dict: Prop interaction count dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT COUNT(*)
-            FROM events 
-            WHERE topic LIKE '%prop/%interaction'
-              AND json_extract(payload, '$.prop_id') = ?
-        ''', (prop_id,))
-        row = cursor.fetchone()
-        
-        usage_count = row[0] if row[0] is not None else 0
-        conn.close()
-                
-        return {"prop_id": prop_id, "usage_count": usage_count}
-        
-    def stats_environment(self, room_id: str, period: str = 'all') -> dict:
-        """Compute environmental statistics (average, min, max temperature and humidity) for a room.
-
-        Args:
-            room_id (str): Room identifier.
-            period (str): Time period filter.
-
-        Returns:
-            dict: Environmental telemetry stats dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        time_cond = self.get_time_condition(period)
-        
-        cursor.execute(f'''
-            SELECT 
-                AVG(json_extract(payload, '$.temperature')),
-                MIN(json_extract(payload, '$.temperature')),
-                MAX(json_extract(payload, '$.temperature')),
-                AVG(json_extract(payload, '$.humidity')),
-                MIN(json_extract(payload, '$.humidity')),
-                MAX(json_extract(payload, '$.humidity'))
-            FROM events 
-            WHERE topic = ?
-              AND {time_cond}
-        ''', (f"room/{room_id}/environment",))
-        row = cursor.fetchone()
-        conn.close()
-        
-        return {
-            "room_id": room_id,
-            "temperature": {
-                "avg": round(row[0], 2) if row[0] else 0,
-                "min": round(row[1], 2) if row[1] else 0,
-                "max": round(row[2], 2) if row[2] else 0
-            },
-            "humidity": {
-                "avg": round(row[3], 2) if row[3] else 0,
-                "min": round(row[4], 2) if row[4] else 0,
-                "max": round(row[5], 2) if row[5] else 0
-            }
-        }
-        
-    def stats_history(self, room_id: str, period: str = 'all') -> dict:
-        """Retrieve historical environmental time-series data points for chart plotting.
-
-        Args:
-            room_id (str): Room identifier.
-            period (str): Time period filter.
-
-        Returns:
-            dict: Historical environmental series dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        time_cond = self.get_time_condition(period)
-        
-        cursor.execute(f'''
-            SELECT 
-                timestamp,
-                json_extract(payload, '$.temperature'),
-                json_extract(payload, '$.humidity')
-            FROM events
-            WHERE topic = ?
-              AND {time_cond}
-            ORDER BY timestamp ASC
-        ''', (f"room/{room_id}/environment",))
-        rows = cursor.fetchall()
-        conn.close()
-        
-        history = []
-        for row in rows:
-            if row[1] is not None and row[2] is not None:
-                history.append({
-                    "timestamp": row[0],
-                    "temperature": row[1],
-                    "humidity": row[2]
-                })
-        return {"room_id": room_id, "history": history}
-
-    # --- ADVANCED DATA PROCESSING ENDPOINTS ---
-
-    def stats_bottlenecks(self) -> dict:
-        """Analyze puzzle completion times and identify chokepoint puzzles across all rooms.
-
-        Returns:
-            dict: Chokepoints analysis dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                json_extract(payload, '$.prop_id') as prop_id,
-                COUNT(*) as trigger_count,
-                MAX(timestamp) as last_triggered
-            FROM events
-            WHERE topic LIKE '%prop/%interaction'
-            GROUP BY prop_id
-            ORDER BY trigger_count DESC
-        ''')
-        rows = cursor.fetchall()
-        conn.close()
-        
-        prop_stats = []
-        for row in rows:
-            prop_stats.append({
-                "prop_id": row[0],
-                "total_interactions": row[1],
-                "last_triggered": row[2],
-                "bottleneck_severity": "HIGH" if row[1] > 20 else ("MEDIUM" if row[1] > 10 else "LOW")
-            })
-            
-        return {
-            "analysis": "Puzzle Chokepoint & Bottleneck Analytics",
-            "timestamp": time.time(),
-            "props_analyzed": len(prop_stats),
-            "chokepoints": prop_stats
-        }
-
-    def stats_safety(self) -> dict:
-        """Compute Room Physical Strain & Safety Comfort Index (0-100%).
-
-        Returns:
-            dict: Safety comfort index and environmental metric summary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        # Query total safety alerts
-        cursor.execute("SELECT COUNT(*) FROM events WHERE topic LIKE '%system/alerts%' OR topic LIKE '%safety%'")
-        alert_count = cursor.fetchone()[0]
-        
-        # Query ambient environmental averages
-        cursor.execute("SELECT AVG(json_extract(payload, '$.temperature')), AVG(json_extract(payload, '$.humidity')) FROM events WHERE topic LIKE '%environment%'")
-        env_row = cursor.fetchone()
-        conn.close()
-        
-        avg_temp = env_row[0] if env_row[0] else 22.0
-        avg_hum = env_row[1] if env_row[1] else 45.0
-        
-        # Comfort index score: deduction for excessive temp/humidity or high safety alerts
-        temp_deduction = max(0, (avg_temp - 24.0) * 5) if avg_temp > 24 else 0
-        alert_deduction = min(40, alert_count * 5)
-        safety_score = max(0, round(100 - temp_deduction - alert_deduction, 1))
-        
-        return {
-            "analysis": "Physical Strain & Safety Index",
-            "safety_score_pct": safety_score,
-            "overall_status": "OPTIMAL" if safety_score >= 80 else ("WARNING" if safety_score >= 60 else "CRITICAL"),
-            "metrics": {
-                "ambient_temp_avg_c": round(avg_temp, 1),
-                "ambient_humidity_avg_pct": round(avg_hum, 1),
-                "total_safety_alerts": alert_count
-            }
-        }
-
-    def stats_maintenance(self) -> dict:
-        """Generate Hardware Diagnostics and Preventative Maintenance Alerts for props/sensors (e.g. low battery).
-
-        Returns:
-            dict: Hardware maintenance warnings list.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                json_extract(payload, '$.badge_id') as badge_id,
-                MIN(json_extract(payload, '$.battery_level')) as lowest_battery
-            FROM events
-            WHERE topic LIKE '%battery%'
-            GROUP BY badge_id
-        ''')
-        battery_rows = cursor.fetchall()
-        conn.close()
-        
-        maintenance_list = []
-        for b in battery_rows:
-            badge_id, lowest_bat = b[0], b[1]
-            if lowest_bat is not None and lowest_bat < 20.0:
-                maintenance_list.append({
-                    "component_id": badge_id,
-                    "type": "battery",
-                    "status": "REPLACE_BATTERY",
-                    "current_level": lowest_bat
-                })
-                
-        return {
-            "analysis": "Hardware Diagnostics & Preventative Maintenance",
-            "timestamp": time.time(),
-            "alerts_count": len(maintenance_list),
-            "maintenance_required": maintenance_list
-        }
-
-    def stats_game_center(self) -> dict:
-        """Aggregate Center-wide Key Performance Indicators (KPIs) across all 10 theme rooms.
-
-        Returns:
-            dict: Game center KPI metrics dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*), AVG(json_extract(payload, '$.duration')) FROM events WHERE topic LIKE '%session/ended%'")
-        row = cursor.fetchone()
-        conn.close()
-        
-        total_sessions = row[0] if row[0] else 0
-        avg_duration = row[1] if row[1] else 0
-        
-        zones = {
-            "Sci-Fi Zone": ["room_cyberpunk", "room_matrix", "room_alien"],
-            "Fantasy Zone": ["room_dungeon", "room_atlantis", "room_tomb"],
-            "Horror Zone": ["room_haunted", "room_asylum", "room_sherlock"],
-            "Arcade Arena": ["room_arcade"]
-        }
-        
-        return {
-            "center_name": "Mega IoT Escape Game Center",
-            "timestamp": time.time(),
-            "total_rooms": 10,
-            "theme_zones": zones,
-            "kpis": {
-                "total_completed_games": total_sessions,
-                "overall_avg_duration_sec": round(avg_duration, 1),
-                "estimated_hourly_player_throughput": round((total_sessions * 4) / max(1, (avg_duration / 3600)), 1)
-            }
-        }
-
-    def stats_heatmap(self, room_id: str) -> dict:
-        """Construct spatial position coordinate heatmaps for player movement within a room.
-
-        Args:
-            room_id (str): Room identifier.
-
-        Returns:
-            dict: Heatmap coordinate matrix dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                ROUND(json_extract(payload, '$.x'), 1) as x_pos,
-                ROUND(json_extract(payload, '$.y'), 1) as y_pos,
-                COUNT(*) as count
-            FROM events
-            WHERE topic LIKE ? AND json_extract(payload, '$.x') IS NOT NULL
-            GROUP BY x_pos, y_pos
-            LIMIT 20
-        ''', (f"%room/{room_id}/badge/%/position",))
-        rows = cursor.fetchall()
-        conn.close()
-        
-        coordinates = [{"x": r[0], "y": r[1], "frequency": r[2]} for r in rows]
-        return {
-            "room_id": room_id,
-            "sample_points": len(coordinates),
-            "heatmap_matrix": coordinates
-        }
-
-    def stats_reset(self) -> dict:
-        """Purge all stored events from the database.
-
-        Returns:
-            dict: Success or error response dictionary.
-        """
-        conn = self.get_conn()
-        cursor = conn.cursor()
+    @wraps(function)
+    def wrapped(*args, **kwargs):
         try:
-            cursor.execute("DELETE FROM events")
-            conn.commit()
-            return {"success": True, "message": "Database reset successfully"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-        finally:
-            conn.close()
-        
-    def prune_old_data_loop(self):
-        """Background thread loop executing every hour to prune events older than 7 days from SQLite database."""
-        while True:
-            try:
-                conn = self.get_conn()
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM events WHERE timestamp < datetime('now', '-7 days')")
-                deleted = cursor.rowcount
-                conn.commit()
-                if deleted > 0:
-                    print(f"Pruned {deleted} old events from database.")
-            except Exception as e:
-                print(f"Error during pruning: {e}")
-            finally:
-                if 'conn' in locals():
-                    conn.close()
-            time.sleep(3600)
+            return function(*args, **kwargs)
+        except cherrypy.HTTPError:
+            raise
+        except ValueError as error:
+            raise cherrypy.HTTPError(400, str(error)) from error
+        except requests.RequestException as error:
+            raise cherrypy.HTTPError(502, f"TimeSeries or Catalog unavailable: {error}") from error
+
+    return wrapped
+
+
+def from_timestamp(period: str, now: float | None = None) -> float | None:
+    if period == "all":
+        return None
+    if period not in PERIOD_SECONDS:
+        raise ValueError("period must be one of: 1h, 24h, 7d, 30d, all")
+    return (now or time.time()) - PERIOD_SECONDS[period]
+
+
+class TimeSeriesClient:
+    def __init__(self, base_url: str | None = None, timeout: float = 5.0) -> None:
+        self.base_url = (base_url or os.getenv("TIMESERIES_URL", DEFAULT_TIMESERIES_URL)).rstrip("/")
+        self.timeout = timeout
+        self.session = requests.Session()
+
+    def events(
+        self,
+        room_id: str | None = None,
+        event_type: str | None = None,
+        from_ts: float | None = None,
+        to_ts: float | None = None,
+        order: str = "asc",
+        max_items: int = 50000,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        page_size = min(2000, max_items)
+        while len(records) < max_items:
+            parameters: dict[str, Any] = {
+                "limit": min(page_size, max_items - len(records)),
+                "offset": len(records),
+                "order": order,
+            }
+            if room_id:
+                parameters["room_id"] = room_id
+            if event_type:
+                parameters["event_type"] = event_type
+            if from_ts is not None:
+                parameters["from_ts"] = from_ts
+            if to_ts is not None:
+                parameters["to_ts"] = to_ts
+            response = self.session.get(f"{self.base_url}/events", params=parameters, timeout=self.timeout)
+            response.raise_for_status()
+            batch = response.json()["events"]
+            records.extend(batch)
+            if len(batch) < parameters["limit"]:
+                break
+        return records
+
+    def health(self) -> dict[str, Any]:
+        response = self.session.get(f"{self.base_url}/health", timeout=self.timeout)
+        response.raise_for_status()
+        return response.json()
+
+    def reset(self) -> dict[str, Any]:
+        response = self.session.post(f"{self.base_url}/reset", params={"confirm": "true"}, timeout=self.timeout)
+        response.raise_for_status()
+        return response.json()
+
+
+class AnalyticsEngine:
+    def __init__(self, timeseries: TimeSeriesClient, catalog: CatalogClient) -> None:
+        self.timeseries = timeseries
+        self.catalog = catalog
+
+    @staticmethod
+    def _measurements(event: dict[str, Any]) -> dict[str, Any]:
+        payload = event.get("payload")
+        if not isinstance(payload, list):
+            return {}
+        try:
+            return senml_values(payload)
+        except (TypeError, ValueError):
+            return {}
+
+    def room_stats(self, room_id: str, period: str = "24h") -> dict[str, Any]:
+        events = self.timeseries.events(room_id, "session_ended", from_timestamp(period))
+        durations = [
+            float(event["payload"].get("duration_seconds", 0.0))
+            for event in events
+            if isinstance(event.get("payload"), dict) and event["payload"].get("duration_seconds") is not None
+        ]
+        successes = sum(
+            1 for event in events if isinstance(event.get("payload"), dict) and event["payload"].get("success") is True
+        )
+        return {
+            "room_id": room_id,
+            "period": period,
+            "total_sessions": len(events),
+            "successful_sessions": successes,
+            "completion_rate_percent": round(100.0 * successes / len(events), 2) if events else 0.0,
+            "avg_solve_time_seconds": round(statistics.fmean(durations), 2) if durations else 0.0,
+            "median_solve_time_seconds": round(statistics.median(durations), 2) if durations else 0.0,
+            "min_solve_time_seconds": round(min(durations), 2) if durations else 0.0,
+            "max_solve_time_seconds": round(max(durations), 2) if durations else 0.0,
+        }
+
+    def prop_stats(self, prop_id: str, room_id: str | None = None, period: str = "24h") -> dict[str, Any]:
+        events = self.timeseries.events(room_id, "prop_interaction", from_timestamp(period))
+        selected = [event for event in events if len(event["topic"].split("/")) >= 4 and event["topic"].split("/")[3] == prop_id]
+        interaction_types = Counter()
+        values = Counter()
+        for event in selected:
+            measurements = self._measurements(event)
+            interaction_types[str(measurements.get("interaction_type", "unknown"))] += 1
+            values[str(measurements.get("value", "unknown"))] += 1
+        return {
+            "prop_id": prop_id,
+            "room_id": room_id,
+            "period": period,
+            "total_interactions": len(selected),
+            "interaction_types": dict(interaction_types),
+            "values": dict(values),
+            "last_interaction_at": max((event["timestamp"] for event in selected), default=None),
+        }
+
+    def environment_stats(self, room_id: str, period: str = "24h") -> dict[str, Any]:
+        events = self.timeseries.events(room_id, "environment", from_timestamp(period))
+        series: dict[str, list[float]] = defaultdict(list)
+        for event in events:
+            for name, value in self._measurements(event).items():
+                if name in {"temperature", "humidity", "co2", "voc"} and isinstance(value, int | float):
+                    series[name].append(float(value))
+        statistics_by_measurement = {
+            name: {
+                "min": round(min(values), 3),
+                "max": round(max(values), 3),
+                "avg": round(statistics.fmean(values), 3),
+                "samples": len(values),
+            }
+            for name, values in series.items()
+            if values
+        }
+        return {"room_id": room_id, "period": period, "measurements": statistics_by_measurement}
+
+    def history(self, room_id: str, period: str = "24h", limit: int = 1000) -> dict[str, Any]:
+        events = self.timeseries.events(
+            room_id,
+            "environment",
+            from_timestamp(period),
+            order="desc",
+            max_items=min(max(1, limit), 5000),
+        )
+        points = [
+            {"timestamp": event["timestamp"], **self._measurements(event)}
+            for event in reversed(events)
+        ]
+        return {"room_id": room_id, "period": period, "history": points, "count": len(points)}
+
+    def heatmap(self, room_id: str, period: str = "24h", grid_size: int = 10) -> dict[str, Any]:
+        room = self.catalog.room(room_id)
+        width = float(room["dimensions"]["width_m"])
+        height = float(room["dimensions"]["height_m"])
+        events = self.timeseries.events(room_id, "badge_position", from_timestamp(period))
+        cells = [[0 for _ in range(grid_size)] for _ in range(grid_size)]
+        points: list[dict[str, Any]] = []
+        for event in events:
+            measurement = self._measurements(event)
+            if not isinstance(measurement.get("x"), int | float) or not isinstance(measurement.get("y"), int | float):
+                continue
+            x = min(width, max(0.0, float(measurement["x"])))
+            y = min(height, max(0.0, float(measurement["y"])))
+            column = min(grid_size - 1, int((x / width) * grid_size))
+            row = min(grid_size - 1, int((y / height) * grid_size))
+            cells[row][column] += 1
+            points.append({"timestamp": event["timestamp"], "badge_id": event["topic"].split("/")[3], "x": x, "y": y})
+        return {
+            "room_id": room_id,
+            "period": period,
+            "dimensions": {"width_m": width, "height_m": height},
+            "grid_size": grid_size,
+            "cells": cells,
+            "samples": len(points),
+            "latest_positions": self._latest_positions(points),
+        }
+
+    @staticmethod
+    def _latest_positions(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest: dict[str, dict[str, Any]] = {}
+        for point in points:
+            latest[point["badge_id"]] = point
+        return list(latest.values())
+
+    def bottlenecks(self, room_id: str | None = None, period: str = "7d") -> dict[str, Any]:
+        events = self.timeseries.events(room_id, "game_transition", from_timestamp(period))
+        grouped: dict[tuple[str, str], list[float]] = defaultdict(list)
+        for event in events:
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            identifier = str(payload.get("trigger_id") or payload.get("from_state") or "unknown")
+            grouped[(str(payload.get("room_id", event.get("room_id"))), identifier)].append(
+                float(payload.get("elapsed_seconds", 0.0))
+            )
+        results = []
+        for (event_room, identifier), durations in grouped.items():
+            results.append(
+                {
+                    "room_id": event_room,
+                    "puzzle": identifier,
+                    "samples": len(durations),
+                    "avg_solve_seconds": round(statistics.fmean(durations), 2),
+                    "median_solve_seconds": round(statistics.median(durations), 2),
+                    "max_solve_seconds": round(max(durations), 2),
+                }
+            )
+        results.sort(key=lambda item: item["avg_solve_seconds"], reverse=True)
+        return {"period": period, "bottlenecks": results}
+
+    def safety(self, room_id: str | None = None, period: str = "24h") -> dict[str, Any]:
+        alerts = self.timeseries.events(room_id, "alert", from_timestamp(period))
+        rooms = [self.catalog.room(room_id)] if room_id else self.catalog.rooms()
+        comfort_samples = 0
+        comfortable = 0
+        for room in rooms:
+            events = self.timeseries.events(room["room_id"], "environment", from_timestamp(period))
+            for event in events:
+                values = self._measurements(event)
+                required = {"temperature", "humidity", "co2", "voc"}
+                if not required.issubset(values):
+                    continue
+                comfort_samples += 1
+                if (
+                    18 <= float(values["temperature"]) <= 26
+                    and 30 <= float(values["humidity"]) <= 65
+                    and float(values["co2"]) <= 1000
+                    and float(values["voc"]) <= 1.0
+                ):
+                    comfortable += 1
+        comfort_score = 100.0 * comfortable / comfort_samples if comfort_samples else 100.0
+        alert_score = max(0.0, 100.0 - 12.5 * len(alerts))
+        score = 0.8 * comfort_score + 0.2 * alert_score
+        types = Counter(
+            str(event["payload"].get("alert_type", "unknown"))
+            for event in alerts
+            if isinstance(event.get("payload"), dict)
+        )
+        return {
+            "room_id": room_id,
+            "period": period,
+            "safety_score_percent": round(score, 2),
+            "comfort_score_percent": round(comfort_score, 2),
+            "environment_samples": comfort_samples,
+            "total_alerts": len(alerts),
+            "alerts_by_type": dict(types),
+        }
+
+    def maintenance(self, room_id: str | None = None, period: str = "7d") -> dict[str, Any]:
+        battery_events = self.timeseries.events(room_id, "badge_battery", from_timestamp(period), order="desc")
+        latest_battery: dict[str, float] = {}
+        for event in battery_events:
+            badge_id = event["topic"].split("/")[3]
+            measurement = self._measurements(event)
+            if badge_id not in latest_battery and isinstance(measurement.get("battery"), int | float):
+                latest_battery[badge_id] = float(measurement["battery"])
+        prop_events = self.timeseries.events(room_id, "prop_health", from_timestamp(period), order="desc")
+        latest_props: dict[str, bool] = {}
+        for event in prop_events:
+            prop_id = event["topic"].split("/")[3]
+            measurement = self._measurements(event)
+            if prop_id not in latest_props:
+                latest_props[prop_id] = bool(measurement.get("online", False))
+        warnings = [
+            {"component_id": badge_id, "type": "badge", "reason": "low_battery", "value": round(level, 2)}
+            for badge_id, level in latest_battery.items()
+            if level < 20.0
+        ]
+        warnings.extend(
+            {"component_id": prop_id, "type": "prop", "reason": "offline", "value": False}
+            for prop_id, online in latest_props.items()
+            if not online
+        )
+        return {
+            "room_id": room_id,
+            "period": period,
+            "latest_badge_battery": latest_battery,
+            "latest_prop_status": latest_props,
+            "maintenance_required": warnings,
+        }
+
+    def game_center(self, period: str = "24h") -> dict[str, Any]:
+        rooms = self.catalog.rooms()
+        per_room = [self.room_stats(room["room_id"], period) for room in rooms]
+        total_sessions = sum(item["total_sessions"] for item in per_room)
+        total_successes = sum(item["successful_sessions"] for item in per_room)
+        weighted_duration = sum(item["avg_solve_time_seconds"] * item["total_sessions"] for item in per_room)
+        if period == "all":
+            ended = self.timeseries.events(event_type="session_ended")
+            if len(ended) >= 2:
+                window_hours = max((ended[-1]["timestamp"] - ended[0]["timestamp"]) / 3600.0, 1 / 60)
+            else:
+                window_hours = 1.0
+        else:
+            window_hours = PERIOD_SECONDS[period] / 3600.0
+        player_count = sum(len(room.get("badges", [])) for room in rooms)
+        average_players = player_count / len(rooms) if rooms else 0.0
+        return {
+            "period": period,
+            "rooms": per_room,
+            "kpis": {
+                "configured_rooms": len(rooms),
+                "total_sessions": total_sessions,
+                "successful_sessions": total_successes,
+                "completion_rate_percent": round(100.0 * total_successes / total_sessions, 2) if total_sessions else 0.0,
+                "overall_avg_duration_seconds": round(weighted_duration / total_sessions, 2) if total_sessions else 0.0,
+                "games_per_hour": round(total_sessions / window_hours, 3),
+                "estimated_players_per_hour": round((total_sessions * average_players) / window_hours, 3),
+            },
+        }
+
+
+class AnalyticsService:
+    def __init__(self, engine: AnalyticsEngine, catalog: CatalogClient) -> None:
+        self.engine = engine
+        self.catalog = catalog
+        self._stop = threading.Event()
+        self.mqtt = MQTTClient("analytics", heartbeat_payload={"role": "historical_analytics"})
+        self.mqtt.on_message_callback = self.on_session_ended
+
+    def start(self) -> None:
+        self.catalog.register_service(
+            name="analytics",
+            description="Historical game, player, environment and safety analytics",
+            endpoint=os.getenv("SERVICE_URL", "http://analytics:8086"),
+            mqtt_topics=["session/+/ended", "analytics/+/summary"],
+        )
+        self.mqtt.subscribe("session/+/ended", qos=1)
+        self.mqtt.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self.mqtt.stop()
+
+    def on_session_ended(self, topic: str, payload: str) -> None:
+        parts = topic.split("/")
+        if len(parts) != 3 or parts[0] != "session" or parts[2] != "ended":
+            return
+        threading.Thread(target=self._publish_summary, args=(parts[1],), daemon=True).start()
+
+    def _publish_summary(self, room_id: str) -> None:
+        if self._stop.wait(0.75):
+            return
+        try:
+            self.mqtt.publish(analytics_summary(room_id), self.engine.room_stats(room_id, "all"), qos=1)
+        except (requests.RequestException, RuntimeError, ValueError):
+            LOGGER.exception("Could not publish post-session analytics for %s", room_id)
+
+
+class StatsRoute:
+    def __init__(self, service: AnalyticsService) -> None:
+        self.service = service
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def room(self, room_id: str, period: str = "24h"):
+        return self.service.engine.room_stats(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def prop(self, prop_id: str, room_id: str | None = None, period: str = "24h"):
+        return self.service.engine.prop_stats(prop_id, room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def environment(self, room_id: str, period: str = "24h"):
+        return self.service.engine.environment_stats(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def history(self, room_id: str, period: str = "24h", limit: str = "1000"):
+        return self.service.engine.history(room_id, period, int(limit))
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def heatmap(self, room_id: str, period: str = "24h"):
+        return self.service.engine.heatmap(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def bottlenecks(self, room_id: str | None = None, period: str = "7d"):
+        return self.service.engine.bottlenecks(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def safety(self, room_id: str | None = None, period: str = "24h"):
+        return self.service.engine.safety(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def maintenance(self, room_id: str | None = None, period: str = "7d"):
+        return self.service.engine.maintenance(room_id, period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def game_center(self, period: str = "24h"):
+        return self.service.engine.game_center(period)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @api_endpoint
+    def reset(self):
+        if cherrypy.request.method.upper() != "POST":
+            raise cherrypy.HTTPError(405, "POST required")
+        return self.service.engine.timeseries.reset()
+
 
 class Root:
-    """CherryPy Root controller placeholder."""
-    pass
-    
-class Stats:
-    """REST Controller mapping /stats endpoints to AnalyticsRoute calculations."""
-
-    def __init__(self):
-        """Initialize Stats REST endpoint controller."""
-        self.analytics = AnalyticsRoute()
-        
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def room(self, room_id, period='all'):
-        """GET /stats/room endpoint returning room solve duration stats."""
-        return self.analytics.stats_room(room_id, period)
-        
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def prop(self, prop_id):
-        """GET /stats/prop endpoint returning prop usage stats."""
-        return self.analytics.stats_prop(prop_id)
-        
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def environment(self, room_id, period='all'):
-        """GET /stats/environment endpoint returning room environmental stats."""
-        return self.analytics.stats_environment(room_id, period)
+    def __init__(self, service: AnalyticsService) -> None:
+        self.service = service
+        self.stats = StatsRoute(service)
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
-    def history(self, room_id, period='all'):
-        """GET /stats/history endpoint returning environmental time-series data points."""
-        return self.analytics.stats_history(room_id, period)
+    def health(self):
+        try:
+            timeseries = self.service.engine.timeseries.health()
+            status = "ok"
+        except requests.RequestException as error:
+            timeseries = {"error": str(error)}
+            status = "degraded"
+        return {"status": status, "mqtt_connected": self.service.mqtt.connected, "timeseries": timeseries}
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def bottlenecks(self):
-        """GET /stats/bottlenecks endpoint returning puzzle chokepoints analytics."""
-        return self.analytics.stats_bottlenecks()
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def safety(self):
-        """GET /stats/safety endpoint returning room safety comfort index."""
-        return self.analytics.stats_safety()
+def main() -> None:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    catalog = CatalogClient()
+    catalog.wait_until_ready()
+    engine = AnalyticsEngine(TimeSeriesClient(), catalog)
+    service = AnalyticsService(engine, catalog)
+    service.start()
+    cherrypy.engine.subscribe("stop", service.stop)
+    cherrypy.config.update(server_config(8086))
+    cherrypy.quickstart(Root(service))
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def maintenance(self):
-        """GET /stats/maintenance endpoint returning hardware diagnostic alerts."""
-        return self.analytics.stats_maintenance()
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def game_center(self):
-        """GET /stats/game_center endpoint returning game center KPI summary."""
-        return self.analytics.stats_game_center()
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def heatmap(self, room_id):
-        """GET /stats/heatmap endpoint returning player movement coordinate heatmap data."""
-        return self.analytics.stats_heatmap(room_id)
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def reset(self):
-        """POST/GET /stats/reset endpoint to purge stored events database."""
-        return self.analytics.stats_reset()
 
 if __name__ == "__main__":
-    root = Root()
-    root.stats = Stats()
-    
-    t = threading.Thread(target=root.stats.analytics.prune_old_data_loop, daemon=True)
-    t.start()
-    
-    def cors_options():
-        if cherrypy.request.method == 'OPTIONS':
-            cherrypy.response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
-            cherrypy.response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-            return True
-    cherrypy.tools.cors_options = cherrypy.Tool('before_handler', cors_options)
-
-    conf = {
-        '/': {
-            'tools.response_headers.on': True,
-            'tools.response_headers.headers': [
-                ('Access-Control-Allow-Origin', '*'),
-                ('Access-Control-Allow-Headers', 'Content-Type')
-            ],
-            'tools.cors_options.on': True
-        },
-        '/stats': {
-            'tools.response_headers.on': True,
-            'tools.response_headers.headers': [
-                ('Access-Control-Allow-Origin', '*'),
-                ('Access-Control-Allow-Headers', 'Content-Type')
-            ],
-            'tools.cors_options.on': True
-        }
-    }
-
-    cherrypy.config.update({
-        'server.socket_host': '0.0.0.0',
-        'server.socket_port': 8084,
-    })
-    cherrypy.quickstart(root, '/', conf)
-
+    main()

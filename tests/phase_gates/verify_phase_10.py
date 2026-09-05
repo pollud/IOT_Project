@@ -1,12 +1,12 @@
 """Phase Gate 10 Verification Test: Validates TimeSeries Adapter service telemetry event ingestion and SQLite database persistence."""
 
 import os
-import sys
-import subprocess
-import time
-import json
 import random
 import sqlite3
+import subprocess
+import sys
+import time
+
 
 def verify_phase_10():
     """Verify timeseries_adapter service database initialization, batch ingestion queue, and SQLite records storage."""

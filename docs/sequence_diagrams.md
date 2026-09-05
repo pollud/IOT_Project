@@ -1,23 +1,52 @@
-# Sequence Diagrams
+# Runtime sequences
 
-## FSM Transition and Action
+## Puzzle progression and persistence
+
 ```mermaid
 sequenceDiagram
-    Prop->>MQTT: game/roomA/prop/rfid_1/interaction
-    MQTT->>Room Control: Deliver interaction message
-    Room Control->>Room Control: Evaluate FSM Transitions
-    Room Control->>MQTT: command/room/roomA (unlock)
-    MQTT->>Room Connector: Deliver command
-    Room Connector->>Hardware: Trigger Relay
+    participant P as Prop Connector
+    participant M as MQTT
+    participant F as Room FSM
+    participant A as Actuator Connector
+    participant T as TimeSeries
+    P->>M: SenML prop interaction
+    M->>F: QoS 1 interaction
+    F->>M: transition + retained status
+    F->>M: actuator command
+    M->>A: lock/light/audio command
+    M->>T: interaction, transition, status
+    T-->>T: queued batch insert
 ```
 
-## Safety Override
+## Safety override
+
 ```mermaid
 sequenceDiagram
-    Badge->>MQTT: game/roomA/badge/b1/safety (fall)
-    MQTT->>Safety Monitor: Deliver fall event
-    Safety Monitor->>MQTT: command/emergency
-    Safety Monitor->>MQTT: system/alerts
-    MQTT->>Room Connector: Deliver command/emergency
-    Room Connector->>Hardware: Unlock all doors
+    participant B as Badge Connector
+    participant M as MQTT
+    participant S as Safety Monitor
+    participant A as Actuator Connector
+    participant D as Dashboard
+    B->>M: fall_detected=true (SenML)
+    M->>S: badge safety event
+    S->>M: system/alerts
+    S->>M: command/emergency/room
+    M->>A: emergency override
+    A-->>A: unlock + emergency lights/audio
+    M->>D: critical alert
+    D-->>D: SSE alert banner
 ```
+
+## Historical analytics
+
+```mermaid
+sequenceDiagram
+    participant D as Dashboard
+    participant N as Analytics
+    participant T as TimeSeries REST
+    D->>N: GET /stats/heatmap
+    N->>T: GET /events (room/type/time/page)
+    T-->>N: ordered persisted events
+    N-->>D: grid + latest badge positions
+```
+

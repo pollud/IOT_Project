@@ -1,157 +1,288 @@
-version: '3.8'
+name: escape-room-iot
+
+x-common-environment: &common-environment
+  MQTT_BROKER: mosquitto
+  MQTT_PORT: "1883"
+  CATALOG_URL: http://catalog:8080
+  LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+x-service-defaults: &service-defaults
+  init: true
+  restart: unless-stopped
 
 services:
   mosquitto:
-    image: eclipse-mosquitto:2
+    <<: *service-defaults
+    image: eclipse-mosquitto:2.0.22
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
-      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "healthcheck", "-m", "ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   catalog:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/catalog/Dockerfile
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config:/app/config
-    depends_on:
-      - mosquitto
     environment:
-      - MQTT_BROKER=mosquitto
+      <<: *common-environment
+      PORT: "8080"
+      CONFIG_DIR: /app/config
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - catalog_config:/app/config
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
-  room_connector:
+  environment_room1:
+    <<: *service-defaults
     build:
       context: .
-      dockerfile: services/room_connector/Dockerfile
-    ports:
-      - "8081:8081"
-    depends_on:
-      - mosquitto
+      dockerfile: services/environment_connector/Dockerfile
     environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room1
+      <<: *common-environment
+      ROOM_ID: room1
+      PORT: "8081"
+      SERVICE_URL: http://environment_room1:8081
+    ports:
+      - "127.0.0.1:8101:8081"
+    depends_on:
+      catalog:
+        condition: service_healthy
 
-  badge_connector:
+  environment_room2:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/environment_connector/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room2
+      PORT: "8081"
+      SERVICE_URL: http://environment_room2:8081
+    ports:
+      - "127.0.0.1:8201:8081"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  room_actuator_room1:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/room_actuator_connector/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room1
+      PORT: "8082"
+      SERVICE_URL: http://room_actuator_room1:8082
+    ports:
+      - "127.0.0.1:8102:8082"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  room_actuator_room2:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/room_actuator_connector/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room2
+      PORT: "8082"
+      SERVICE_URL: http://room_actuator_room2:8082
+    ports:
+      - "127.0.0.1:8202:8082"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  badge_room1:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/badge_connector/Dockerfile
-    ports:
-      - "8082:8082"
-    depends_on:
-      - mosquitto
     environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room1
-      - BADGE_ID=b1
+      <<: *common-environment
+      ROOM_ID: room1
+      PORT: "8083"
+      SERVICE_URL: http://badge_room1:8083
+    ports:
+      - "127.0.0.1:8103:8083"
+    depends_on:
+      catalog:
+        condition: service_healthy
 
-  prop_connector:
+  badge_room2:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/badge_connector/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room2
+      PORT: "8083"
+      SERVICE_URL: http://badge_room2:8083
+    ports:
+      - "127.0.0.1:8203:8083"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  prop_room1:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/prop_connector/Dockerfile
-    ports:
-      - "8083:8083"
-    depends_on:
-      - mosquitto
     environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room1
-      - PROP_ID=prop1
+      <<: *common-environment
+      ROOM_ID: room1
+      PORT: "8084"
+      SERVICE_URL: http://prop_room1:8084
+    ports:
+      - "127.0.0.1:8104:8084"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  prop_room2:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/prop_connector/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room2
+      PORT: "8084"
+      SERVICE_URL: http://prop_room2:8084
+    ports:
+      - "127.0.0.1:8204:8084"
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  room_control_room1:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/room_control/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room1
+    depends_on:
+      catalog:
+        condition: service_healthy
+
+  room_control_room2:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/room_control/Dockerfile
+    environment:
+      <<: *common-environment
+      ROOM_ID: room2
+    depends_on:
+      catalog:
+        condition: service_healthy
 
   safety_monitor:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/safety_monitor/Dockerfile
-    depends_on:
-      - mosquitto
     environment:
-      - MQTT_BROKER=mosquitto
-
-  room_control:
-    build:
-      context: .
-      dockerfile: services/room_control/Dockerfile
+      <<: *common-environment
+      MAX_TEMPERATURE_C: "${MAX_TEMPERATURE_C:-32}"
+      MAX_HUMIDITY_PERCENT: "${MAX_HUMIDITY_PERCENT:-75}"
+      MAX_CO2_PPM: "${MAX_CO2_PPM:-1500}"
+      MAX_VOC_MG_M3: "${MAX_VOC_MG_M3:-2}"
+      ALERT_COOLDOWN_SECONDS: "${ALERT_COOLDOWN_SECONDS:-30}"
     depends_on:
-      - mosquitto
-    volumes:
-      - ./config:/app/config
-    environment:
-      - MQTT_BROKER=mosquitto
-      - PYTHONUNBUFFERED=1
-      - ROOM_ID=ALL
+      catalog:
+        condition: service_healthy
 
   timeseries_adapter:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/timeseries_adapter/Dockerfile
-    depends_on:
-      - mosquitto
-    volumes:
-      - ./data:/app/data
     environment:
-      - MQTT_BROKER=mosquitto
+      <<: *common-environment
+      PORT: "8085"
+      SERVICE_URL: http://timeseries_adapter:8085
+      DATABASE_PATH: /var/lib/timeseries/events.db
+      RETENTION_DAYS: "${RETENTION_DAYS:-30}"
+    ports:
+      - "127.0.0.1:8085:8085"
+    volumes:
+      - timeseries_data:/var/lib/timeseries
+    depends_on:
+      catalog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   analytics:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/analytics/Dockerfile
+    environment:
+      <<: *common-environment
+      PORT: "8086"
+      SERVICE_URL: http://analytics:8086
+      TIMESERIES_URL: http://timeseries_adapter:8085
     ports:
-      - "8084:8084"
-    volumes:
-      - ./data:/app/data
+      - "127.0.0.1:8086:8086"
+    depends_on:
+      timeseries_adapter:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8086/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   web_dashboard:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/web_dashboard/Dockerfile
+    environment:
+      <<: *common-environment
+      PORT: "8087"
+      SERVICE_URL: http://web_dashboard:8087
+      ANALYTICS_URL: http://analytics:8086
+      DASHBOARD_DIST: /app/dist
     ports:
-      - "8087:8087"
+      - "127.0.0.1:8087:8087"
     depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
+      analytics:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8087/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
-  room_connector_2:
-    build:
-      context: .
-      dockerfile: services/room_connector/Dockerfile
-    depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room2
-
-  badge_connector_2:
-    build:
-      context: .
-      dockerfile: services/badge_connector/Dockerfile
-    depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room2
-      - BADGE_ID=b2
-
-  prop_connector_2:
-    build:
-      context: .
-      dockerfile: services/prop_connector/Dockerfile
-    depends_on:
-      - mosquitto
-    environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room2
-      - PROP_ID=prop2
-
-  room_control_2:
-    build:
-      context: .
-      dockerfile: services/room_control/Dockerfile
-    depends_on:
-      - mosquitto
-    volumes:
-      - ./config:/app/config
-    environment:
-      - MQTT_BROKER=mosquitto
-      - ROOM_ID=room2
+volumes:
+  catalog_config:
+  mosquitto_data:
+  timeseries_data:

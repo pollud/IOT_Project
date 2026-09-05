@@ -1,22 +1,12 @@
 {
-    "registered_services": [
-        {"type": "service", "name": "catalog", "description": "Central Game Catalog"},
-        {"type": "service", "name": "room_control", "description": "Room FSM Controller"},
-        {"type": "service", "name": "timeseries_adapter", "description": "Telemetry Persistence DB"},
-        {"type": "service", "name": "analytics", "description": "Analytics Engine", "endpoint": "http://analytics:8084"},
-        {"type": "service", "name": "safety_monitor", "description": "Safety Monitor Rules Engine"},
-        {"type": "service", "name": "web_dashboard", "description": "Command Center Web UI", "endpoint": "http://web_dashboard:8087"}
-    ],
-    "registered_devices": [
-        {"type": "device", "device_id": "room_cyberpunk", "room_id": "room_cyberpunk", "zone": "Sci-Fi", "description": "Cyberpunk Env Sensors"},
-        {"type": "device", "device_id": "room_matrix", "room_id": "room_matrix", "zone": "Sci-Fi", "description": "Matrix Env Sensors"},
-        {"type": "device", "device_id": "room_alien", "room_id": "room_alien", "zone": "Sci-Fi", "description": "Alien Env Sensors"},
-        {"type": "device", "device_id": "room_dungeon", "room_id": "room_dungeon", "zone": "Fantasy", "description": "Dungeon Env Sensors"},
-        {"type": "device", "device_id": "room_atlantis", "room_id": "room_atlantis", "zone": "Fantasy", "description": "Atlantis Env Sensors"},
-        {"type": "device", "device_id": "room_tomb", "room_id": "room_tomb", "zone": "Fantasy", "description": "Tomb Env Sensors"},
-        {"type": "device", "device_id": "room_haunted", "room_id": "room_haunted", "zone": "Horror", "description": "Haunted Env Sensors"},
-        {"type": "device", "device_id": "room_asylum", "room_id": "room_asylum", "zone": "Horror", "description": "Asylum Env Sensors"},
-        {"type": "device", "device_id": "room_sherlock", "room_id": "room_sherlock", "zone": "Horror", "description": "Sherlock Env Sensors"},
-        {"type": "device", "device_id": "room_arcade", "room_id": "room_arcade", "zone": "Arcade", "description": "Arcade Env Sensors"}
-    ]
+  "registered_services": [
+    {
+      "type": "service",
+      "name": "catalog",
+      "description": "Central service, device and room registry",
+      "endpoint": "http://catalog:8080"
+    }
+  ],
+  "registered_devices": []
 }
+

@@ -1,36 +1,23 @@
-"""Script for populating the Game Catalog with all system microservices and IoT devices."""
+"""Audit automatic Catalog registration (manual registration is no longer needed)."""
+
+from __future__ import annotations
+
+import os
 
 import requests
 
-#: Target URL for Catalog registration endpoint.
-catalog_url = "http://localhost:8080/register"
+CATALOG_URL = os.getenv("CATALOG_URL", "http://localhost:8080").rstrip("/")
 
-#: Microservices to register with the Catalog.
-services = [
-    {"type": "service", "name": "room_control", "description": "Room FSM Controller"},
-    {"type": "service", "name": "timeseries_adapter", "description": "Telemetry Persistence DB"},
-    {"type": "service", "name": "analytics", "description": "Analytics Engine", "endpoint": "http://analytics:8084"},
-    {"type": "service", "name": "safety_monitor", "description": "Safety Monitor Rules Engine"},
-    {"type": "service", "name": "web_dashboard", "description": "Game Master Command Center Web UI", "endpoint": "http://web_dashboard:8087"}
-]
 
-#: IoT Devices and Simulators to register with the Catalog.
-devices = [
-    {"type": "device", "device_id": "room_room1", "room_id": "room1", "description": "Room 1 Env Sensors"},
-    {"type": "device", "device_id": "room_room2", "room_id": "room2", "description": "Room 2 Env Sensors"},
-    {"type": "device", "device_id": "badge_b1", "room_id": "room1", "description": "Player 1 Badge Simulator"},
-    {"type": "device", "device_id": "badge_b2", "room_id": "room2", "description": "Player 2 Badge Simulator"},
-    {"type": "device", "device_id": "prop_prop1", "room_id": "room1", "description": "Prop Simulator 1"},
-    {"type": "device", "device_id": "prop_prop2", "room_id": "room2", "description": "Prop Simulator 2"}
-]
+def main() -> None:
+    services = requests.get(f"{CATALOG_URL}/services", timeout=5).json()["services"]
+    devices = requests.get(f"{CATALOG_URL}/devices", timeout=5).json()["devices"]
+    rooms = requests.get(f"{CATALOG_URL}/rooms", timeout=5).json()["rooms"]
+    print(f"Rooms: {len(rooms)} | Services: {len(services)} | Devices: {len(devices)}")
+    for service in sorted(services, key=lambda item: item["name"]):
+        print(f"- {service['name']}: {service.get('online_status', 'configured')}")
 
-# Register microservices via POST request to Catalog /register
-for s in services:
-    requests.post(catalog_url, json=s)
 
-# Register IoT devices via POST request to Catalog /register
-for d in devices:
-    requests.post(catalog_url, json=d)
-
-print("Registered everything!")
+if __name__ == "__main__":
+    main()
 

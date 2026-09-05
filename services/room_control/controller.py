@@ -1,134 +1,136 @@
-"""Room controller service managing room FSM lifecycle, MQTT topics, and strategy updates."""
+"""Room Control MQTT adapter hosting one recoverable FSM instance."""
 
-import os
-import time
+from __future__ import annotations
+
 import json
-from shared.mqtt import MQTTClient
-from shared.topics import build_topic
-from fsm import RoomFSM
-from loader import load_strategy_from_file
+import logging
+import os
+import threading
+import time
+from typing import Any
 
-#: List of all supported room IDs in the game center.
-ALL_KNOWN_ROOMS = [
-    "room1",
-    "room2",
-    "room_cyberpunk",
-    "room_matrix",
-    "room_alien",
-    "room_dungeon",
-    "room_atlantis",
-    "room_tomb",
-    "room_haunted",
-    "room_asylum",
-    "room_sherlock",
-    "room_arcade"
-]
+from services.room_control.fsm import RoomFSM
+from services.room_control.loader import load_strategy_from_catalog
+from shared.catalog_client import CatalogClient
+from shared.config import validate_identifier
+from shared.mqtt import MQTTClient
+from shared.senml import values
+from shared.topics import catalog_update, game_status, prop_wildcard, room_command
+
+LOGGER = logging.getLogger("room_control")
+
 
 class RoomController:
-    """Controller connecting MQTT topic subscriptions for a room to its underlying RoomFSM engine."""
-
-    def __init__(self, room_id: str):
-        """Initialize RoomController for room_id, setup MQTT client, load strategy, and subscribe to topics.
-
-        Args:
-            room_id (str): Target room identifier.
-        """
-        self.room_id = room_id
-        
-        broker = os.getenv("MQTT_BROKER", "mosquitto")
+    def __init__(self, room_id: str, catalog: CatalogClient) -> None:
+        self.room_id = validate_identifier(room_id, "room_id")
+        self.catalog = catalog
+        self.fsm: RoomFSM | None = None
+        self._recovered_status: dict[str, Any] | None = None
+        self._recovery_received = threading.Event()
         self.mqtt = MQTTClient(
-            client_id=f"room_control_{self.room_id}",
-            broker=broker
+            f"room_control_{self.room_id}",
+            heartbeat_payload=lambda: {
+                "room_id": self.room_id,
+                "state": self.fsm.current_state if self.fsm else "initializing",
+            },
         )
         self.mqtt.on_message_callback = self.on_message
-        
-        connected = False
-        while not connected:
+
+    def start(self) -> None:
+        strategy = load_strategy_from_catalog(self.catalog, self.room_id)
+        service_name = f"room_control_{self.room_id}"
+        self.catalog.register_service(
+            name=service_name,
+            description="Recoverable room game-flow finite state machine",
+            room_id=self.room_id,
+            mqtt_topics=[
+                prop_wildcard(self.room_id, "interaction"),
+                room_command(self.room_id),
+                game_status(self.room_id),
+                catalog_update(self.room_id),
+            ],
+        )
+        self.mqtt.subscribe(prop_wildcard(self.room_id, "interaction"), qos=1)
+        self.mqtt.subscribe(room_command(self.room_id), qos=1)
+        self.mqtt.subscribe(game_status(self.room_id), qos=1)
+        self.mqtt.subscribe(catalog_update(self.room_id), qos=1)
+        self.mqtt.start()
+        self._recovery_received.wait(float(os.getenv("RECOVERY_WINDOW_SECONDS", "0.75")))
+        self.fsm = RoomFSM(self.room_id, strategy, self.mqtt, self._recovered_status)
+        self.fsm.start()
+
+    def stop(self) -> None:
+        if self.fsm:
+            self.fsm.close()
+        self.mqtt.stop()
+
+    def on_message(self, topic: str, payload: str) -> None:
+        if topic == game_status(self.room_id):
+            if self.fsm is None:
+                try:
+                    status = json.loads(payload)
+                    if status.get("room_id") == self.room_id:
+                        self._recovered_status = status
+                        self._recovery_received.set()
+                except json.JSONDecodeError:
+                    LOGGER.warning("Ignored malformed retained room status")
+            return
+
+        if topic == catalog_update(self.room_id):
+            if self.fsm is not None:
+                try:
+                    self.fsm.load_strategy(load_strategy_from_catalog(self.catalog, self.room_id))
+                    LOGGER.info("[%s] strategy hot-reloaded", self.room_id)
+                except Exception:
+                    LOGGER.exception("[%s] rejected strategy update", self.room_id)
+            return
+
+        if self.fsm is None:
+            return
+
+        if topic == room_command(self.room_id):
             try:
-                self.mqtt.start()
-                time.sleep(0.5)
-                if self.mqtt.connected:
-                    connected = True
-                else:
-                    self.mqtt.stop()
-                    time.sleep(0.5)
-            except Exception as e:
-                print(f"[{self.room_id}] Waiting for mosquitto... {e}")
-                time.sleep(1)
-                
-        strategy_file = f"/app/config/strategy_{self.room_id}.json"
-        if not os.path.exists(strategy_file):
-            # Fallback to room1 strategy if file does not exist
-            strategy_file = "/app/config/strategy_room1.json"
-
-        strategy = load_strategy_from_file(strategy_file)
-        self.fsm = RoomFSM(self.room_id, strategy, self.mqtt)
-        
-        self.mqtt.subscribe(build_topic(self.room_id, "prop", "interaction", "+"))
-        self.mqtt.subscribe(build_topic(self.room_id, "catalog", "config-update"))
-        self.mqtt.subscribe(build_topic(self.room_id, "room", "command"))
-        self.mqtt.subscribe(f"command/room/{self.room_id}")
-        self.mqtt.subscribe(f"room/{self.room_id}/status")
-        
-    def on_message(self, topic: str, payload):
-        """Handle incoming MQTT messages for state recovery, room commands, prop interactions, and config updates.
-
-        Args:
-            topic (str): MQTT topic string.
-            payload (str or dict): Message payload.
-        """
-        try:
-            data = json.loads(payload) if isinstance(payload, str) or isinstance(payload, bytes) else payload
-        except Exception:
-            data = {}
-
-        if f"room/{self.room_id}/status" in topic:
-            retained_state = data.get("current_state") if isinstance(data, dict) else None
-            if retained_state:
-                self.fsm.restore_state(retained_state)
-
-        elif "command" in topic:
-            cmd = data.get("command") if isinstance(data, dict) else None
-            if cmd == "reset":
-                print(f"[{self.room_id}] Resetting FSM...")
+                command = json.loads(payload)
+            except json.JSONDecodeError:
+                LOGGER.warning("Ignored malformed room command")
+                return
+            if not isinstance(command, dict):
+                LOGGER.warning("Ignored non-object room command")
+                return
+            if command.get("room_id") != self.room_id:
+                return
+            name = command.get("command")
+            if name in {"reset", "start"}:
                 self.fsm.reset_room()
-            elif cmd == "unlockDoor":
-                print(f"[{self.room_id}] Forcing unlock...")
-                self.fsm.force_unlock()
+            return
 
-        elif "interaction" in topic:
-            if isinstance(data, dict):
-                prop_id = data.get("prop_id")
-                interaction_type = data.get("interaction_type")
-                val = data.get("value")
-                self.fsm.event_transition("PropEvent", prop_id, interaction_type, val)
-            
-        elif "config-update" in topic:
-            print(f"[{self.room_id}] Received config update!")
-            strategy_file = f"/app/config/strategy_{self.room_id}.json"
-            if not os.path.exists(strategy_file):
-                strategy_file = "/app/config/strategy_room1.json"
-            strategy = load_strategy_from_file(strategy_file)
-            self.fsm.load_strategy(strategy)
+        if topic.endswith("/interaction"):
+            try:
+                measurement = values(payload)
+                prop_id = topic.split("/")[3]
+                transitioned = self.fsm.event_transition(
+                    prop_id,
+                    str(measurement["interaction_type"]),
+                    str(measurement["value"]),
+                )
+                if not transitioned:
+                    LOGGER.info("[%s] interaction did not match current state: %s", self.room_id, prop_id)
+            except (KeyError, TypeError, ValueError):
+                LOGGER.warning("Ignored malformed prop interaction on %s", topic)
 
-if __name__ == "__main__":
-    env_room = os.getenv("ROOM_ID", "ALL")
-    
-    if env_room == "ALL" or env_room == "all":
-        target_rooms = ALL_KNOWN_ROOMS
-    else:
-        target_rooms = [r.strip() for r in env_room.split(",") if r.strip()]
-        
-    controllers = []
-    print(f"🚀 Initializing Room Controllers for: {target_rooms}")
-    for r_id in target_rooms:
-        ctrl = RoomController(r_id)
-        controllers.append(ctrl)
-        
+
+def main() -> None:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    catalog = CatalogClient()
+    catalog.wait_until_ready()
+    controller = RoomController(os.getenv("ROOM_ID", "room1"), catalog)
+    controller.start()
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        for ctrl in controllers:
-            ctrl.mqtt.stop()
+        controller.stop()
 
+
+if __name__ == "__main__":
+    main()

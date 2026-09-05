@@ -1,75 +1,54 @@
 {
   "room_id": "room1",
-  "version": "vault_101_v1",
+  "name": "Vault 101 Escape Protocol",
+  "version": "vault_101_v2",
   "initial_state": "vault_door_sealed",
   "states": {
     "vault_door_sealed": {
       "on_enter": [
-        {
-          "action": "publishStatus",
-          "status": "started"
-        }
+        {"action": "lockDoor", "target": "main_door"},
+        {"action": "setLights", "color": "vault_blue"},
+        {"action": "publishStatus", "status": "started"}
       ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "pipboy",
-          "interaction_type": "rfid",
-          "value": "scanned",
-          "target_state": "overseer_office"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "pipboy", "interaction_type": "rfid", "value": "scanned", "target_state": "overseer_office"}
       ]
     },
     "overseer_office": {
-      "on_enter": [],
+      "on_enter": [
+        {"action": "playAudio", "track": "overseer_message.mp3"}
+      ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "terminal",
-          "interaction_type": "button",
-          "value": "hacked",
-          "target_state": "vault_door_opening"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "terminal", "interaction_type": "button", "value": "hacked", "target_state": "vault_door_opening"}
       ]
     },
     "vault_door_opening": {
       "on_enter": [
-        {
-          "action": "playAudio",
-          "track": "siren.mp3"
-        }
+        {"action": "playAudio", "track": "vault_siren.mp3"},
+        {"action": "setLights", "color": "warning_amber"}
       ],
       "transitions": [
-        {
-          "trigger": "time",
-          "duration_seconds": 2,
-          "target_state": "wasteland_exit"
-        }
+        {"trigger": "time", "duration_seconds": 2, "target_state": "wasteland_exit"}
       ]
     },
     "wasteland_exit": {
-      "on_enter": [],
+      "on_enter": [
+        {"action": "setLights", "color": "wasteland_daylight"}
+      ],
       "transitions": [
-        {
-          "trigger": "event",
-          "event_type": "PropEvent",
-          "prop_id": "geiger_counter",
-          "interaction_type": "capacitive",
-          "value": "touched",
-          "target_state": "game_cleared"
-        }
+        {"trigger": "event", "event_type": "PropEvent", "prop_id": "geiger_counter", "interaction_type": "capacitive", "value": "touched", "target_state": "game_cleared"}
       ]
     },
     "game_cleared": {
+      "is_terminal": true,
       "on_enter": [
-        {
-          "action": "publishStatus",
-          "status": "completed"
-        }
+        {"action": "unlockDoor", "target": "main_door"},
+        {"action": "setLights", "color": "success_green"},
+        {"action": "playAudio", "track": "escape_success.mp3"},
+        {"action": "publishStatus", "status": "completed"}
       ],
       "transitions": []
     }
   }
 }
+

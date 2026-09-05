@@ -1,11 +1,12 @@
 """Phase Gate 08 Verification Test: Validates Safety Monitor service fall detection, emergency override broadcasting, and system alert publishing."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_8():
     """Verify safety_monitor fall detection processing, emergency broadcast to MQTT command/emergency, and room actuator override logging."""
@@ -18,8 +19,8 @@ def verify_phase_8():
     # wait for safety monitor to start
     time.sleep(3)
 
-    from shared.mqtt import MQTTClient
     from shared.models import BadgeSafetyEvent
+    from shared.mqtt import MQTTClient
     
     received_emergency = False
     received_alert = False
@@ -58,7 +59,7 @@ def verify_phase_8():
     try:
         r = requests.get("http://localhost:8081/actuator/health")
         logs = r.json().get("logs", [])
-        has_emerg = any(l.get("type") == "emergency" for l in logs)
+        has_emerg = any(entry.get("type") == "emergency" for entry in logs)
         if not has_emerg:
             print("FAIL: Emergency command was not logged by room_connector.")
             sys.exit(1)

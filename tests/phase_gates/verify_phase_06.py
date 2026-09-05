@@ -1,11 +1,12 @@
 """Phase Gate 06 Verification Test: Validates Badge Connector telemetry publishing (position, battery, heartbeat) and forced fall safety event trigger."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_6():
     """Verify badge_connector startup, REST trigger endpoint, and MQTT badge telemetry topic reception."""

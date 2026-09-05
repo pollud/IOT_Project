@@ -1,47 +1,117 @@
-"""MQTT topic generator adhering to system-wide topic conventions."""
+"""Canonical MQTT topic contract for the whole platform.
 
-def build_topic(room: str, device: str, event: str, device_id: str = None) -> str:
-    """Build an MQTT topic string based on target room, device category, event type, and optional device ID.
+All producers and consumers import these helpers. No service builds an MQTT
+topic with ad-hoc string concatenation.
+"""
 
-    Examples:
-        - build_topic("roomA", "room", "environment") -> "room/roomA/environment"
-        - build_topic("roomA", "badge", "position", "b1") -> "game/roomA/badge/b1/position"
-        - build_topic("roomA", "catalog", "config-update") -> "catalog/roomA/config-update"
-        - build_topic(None, "system", "alerts") -> "system/alerts"
-        - build_topic(None, "command", "emergency") -> "command/emergency"
+from __future__ import annotations
 
-    Args:
-        room (str, optional): Target room identifier (e.g. "roomA").
-        device (str): Device or service category ("room", "badge", "prop", "catalog", "system", "command", "session", "analytics", "game").
-        event (str): Event or sub-topic name (e.g. "environment", "position", "alerts", "emergency").
-        device_id (str, optional): Specific ID of the device (required for "badge" and "prop").
+from shared.config import validate_identifier
 
-    Returns:
-        str: Formatted MQTT topic string.
+SYSTEM_ALERTS = "system/alerts"
+SERVICE_STATUS_WILDCARD = "status/+"
 
-    Raises:
-        ValueError: If device is "badge" or "prop" and device_id is omitted.
-    """
-    if device == "room":
-        if event == "command":
-            return f"command/room/{room}"
-        return f"room/{room}/{event}"
-    elif device in ("badge", "prop"):
-        if not device_id:
-            raise ValueError("device_id is required for badges and props")
-        return f"game/{room}/{device}/{device_id}/{event}"
-    elif device == "catalog":
-        return f"catalog/{room}/{event}"
-    elif device == "system":
-        return f"system/{event}"
-    elif device == "command" and event == "emergency":
-        return "command/emergency"
-    elif device == "session":
-        return f"session/{room}/{event}"
-    elif device == "analytics":
-        return f"analytics/{room}/{event}"
-    elif device == "game" and event == "status":
-        return f"game/{room}/status"
-    else:
-        return f"custom/{room}/{device}/{event}"
 
+def environment(room_id: str, sensor_id: str = "env1") -> str:
+    room = validate_identifier(room_id, "room_id")
+    sensor = validate_identifier(sensor_id, "sensor_id")
+    return f"room/{room}/environment/{sensor}/telemetry"
+
+
+def environment_wildcard() -> str:
+    return "room/+/environment/+/telemetry"
+
+
+def badge(room_id: str, badge_id: str, event: str) -> str:
+    if event not in {"position", "battery", "safety", "heartbeat"}:
+        raise ValueError(f"Unsupported badge event: {event}")
+    room = validate_identifier(room_id, "room_id")
+    device = validate_identifier(badge_id, "badge_id")
+    return f"game/{room}/badge/{device}/{event}"
+
+
+def badge_wildcard(event: str = "+") -> str:
+    if event != "+" and event not in {"position", "battery", "safety", "heartbeat"}:
+        raise ValueError(f"Unsupported badge event: {event}")
+    return f"game/+/badge/+/{event}"
+
+
+def prop(room_id: str, prop_id: str, event: str) -> str:
+    if event not in {"interaction", "health", "heartbeat"}:
+        raise ValueError(f"Unsupported prop event: {event}")
+    room = validate_identifier(room_id, "room_id")
+    device = validate_identifier(prop_id, "prop_id")
+    return f"game/{room}/prop/{device}/{event}"
+
+
+def prop_wildcard(room_id: str = "+", event: str = "+") -> str:
+    if room_id != "+":
+        validate_identifier(room_id, "room_id")
+    if event != "+" and event not in {"interaction", "health", "heartbeat"}:
+        raise ValueError(f"Unsupported prop event: {event}")
+    return f"game/{room_id}/prop/+/{event}"
+
+
+def room_command(room_id: str) -> str:
+    return f"command/room/{validate_identifier(room_id, 'room_id')}"
+
+
+def emergency_command(room_id: str) -> str:
+    return f"command/emergency/{validate_identifier(room_id, 'room_id')}"
+
+
+def game_status(room_id: str) -> str:
+    return f"game/{validate_identifier(room_id, 'room_id')}/status"
+
+
+def game_transition(room_id: str) -> str:
+    return f"game/{validate_identifier(room_id, 'room_id')}/transition"
+
+
+def session(room_id: str, event: str) -> str:
+    if event not in {"started", "ended"}:
+        raise ValueError(f"Unsupported session event: {event}")
+    return f"session/{validate_identifier(room_id, 'room_id')}/{event}"
+
+
+def catalog_update(room_id: str) -> str:
+    return f"catalog/{validate_identifier(room_id, 'room_id')}/config-update"
+
+
+def analytics_summary(room_id: str) -> str:
+    return f"analytics/{validate_identifier(room_id, 'room_id')}/summary"
+
+
+def service_status(client_id: str) -> str:
+    return f"status/{validate_identifier(client_id, 'client_id')}"
+
+
+def room_from_topic(topic: str) -> str | None:
+    """Return the correlated room ID for every room-scoped canonical topic."""
+    parts = topic.split("/")
+    if len(parts) >= 2 and parts[0] in {"room", "game", "session", "catalog", "analytics"}:
+        return parts[1]
+    if len(parts) >= 3 and parts[0] == "command" and parts[1] in {"room", "emergency"}:
+        return parts[2]
+    return None
+
+
+def event_type_from_topic(topic: str) -> str:
+    parts = topic.split("/")
+    if topic == SYSTEM_ALERTS:
+        return "alert"
+    if parts[0] == "status":
+        return "presence"
+    if parts[0] == "room" and len(parts) == 5:
+        return "environment"
+    if parts[0] == "game" and len(parts) == 5 and parts[2] == "badge":
+        return f"badge_{parts[4]}"
+    if parts[0] == "game" and len(parts) == 5 and parts[2] == "prop":
+        return f"prop_{parts[4]}"
+    if parts[0] == "game" and len(parts) == 3:
+        return f"game_{parts[2]}"
+    if parts[0] == "session" and len(parts) == 3:
+        return f"session_{parts[2]}"
+    if parts[0] == "command":
+        return "command"
+    return "other"

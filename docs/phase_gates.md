@@ -1,20 +1,36 @@
-# Phase Gates Verify Commands
+# Verification gates
 
-| Phase | Verify Command (`tests/phase_gates/verify_phase_*.py`) | Description |
-|---|---|---|
-| Phase 1 | `python -m pytest tests/phase_gates/verify_phase_01.py` | Verify shared library models can be serialized/deserialized |
-| Phase 2 | `python tests/phase_gates/verify_phase_02.py` | Check `docker-compose up` status and mosquitto roundtrip |
-| Phase 3 | `python tests/phase_gates/verify_phase_03.py` | Register fake device, edit config, assert config-update MQTT message |
-| Phase 4 | `python tests/phase_gates/verify_phase_04.py` | MQTT client reconnects on broker bounce, last-will message delivery |
-| Phase 5 | `python tests/phase_gates/verify_phase_05.py` | Room Connector logs unlock command and emergency override |
-| Phase 6 | `python tests/phase_gates/verify_phase_06.py` | Badge connector emits position, battery, heartbeat, safety topics |
-| Phase 7 | `python tests/phase_gates/verify_phase_07.py` | Prop connector emits interaction, health, heartbeat topics |
-| Phase 8 | `python tests/phase_gates/verify_phase_08.py` | Synthetic fall event triggers emergency unlock and system alerts |
-| Phase 9 | `python tests/phase_gates/verify_phase_09.py` | FSM demo strategy runs to completion; hot-swaps config mid-run |
-| Phase 10 | `python tests/phase_gates/verify_phase_10.py` | TimeSeriesDB persists telemetry in SQLite with batch write queue |
-| Phase 11 | `python tests/phase_gates/verify_phase_11.py` | Analytics Engine generates consistent output across restarts |
-| Phase 12 | `python tests/phase_gates/verify_phase_12.py` | Analytics REST endpoints (/stats/room, /stats/history, /stats/safety) |
-| Phase 13 | `python tests/phase_gates/verify_phase_13.py` | Web Dashboard manual command gateway (/api/command) and latency |
-| Phase 14 | `python tests/phase_gates/verify_phase_14.py` | Web Dashboard Server-Sent Events (SSE) real-time stream (/api/stream) |
-| Phase 15 | `python tests/phase_gates/verify_phase_15.py` | End-to-end multi-room simulation across concurrent rooms |
-| Phase 16 | `python tests/phase_gates/verify_phase_16.py` | Full test suite execution and stress metrics validation |
+| Area | Deterministic gate |
+| --- | --- |
+| Shared library | SenML encode/decode and canonical topic unit tests |
+| Catalog | CRUD, duplicate handling, persistence and room/device correlation tests |
+| MQTT | unique client IDs, QoS contract, retained FSM/config/presence topics |
+| Environment | natural temperature/humidity/CO2/VOC SenML observed |
+| Badges | natural position/battery/heartbeat plus forced safety event observed |
+| Props | configured health/heartbeat and exact interaction observed |
+| Safety | fall produces both alert and room-specific actuator override |
+| Room Control | two strategies validate; event/timed transitions and recovery tested |
+| TimeSeries | filters, ordering, pagination, prune, reset and queue drain tested |
+| Analytics | known fixture produces exact session/environment/heatmap/bottleneck math |
+| Dashboard | SenML live cache, real SSE event, controls, alert banner and proxies tested |
+| Multi-room | completing room1 leaves reset room2 in its independent initial state |
+
+Run static/unit gates:
+
+```bash
+python -m pytest
+ruff check .
+npm --prefix services/web_dashboard run build
+```
+
+Run the observable full-stack gate:
+
+```bash
+docker compose up --build -d
+python tests/integration/verify_stack.py
+```
+
+The integration gate requires downstream evidence. For example, a successful
+Dashboard HTTP response is insufficient: the test waits for the resulting FSM
+state, persisted session, Analytics result and SSE event.
+

@@ -1,11 +1,12 @@
 """Phase Gate 12 Verification Test: Validates Analytics Engine REST API endpoints and data aggregation."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_12():
     """Verify Analytics Engine container startup and /stats REST endpoints response structure."""

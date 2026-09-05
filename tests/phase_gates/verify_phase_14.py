@@ -1,11 +1,12 @@
 """Phase Gate 14 Verification Test: Validates Web Dashboard Server-Sent Events (SSE) real-time stream (/api/stream)."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 import requests
-import json
+
 
 def verify_phase_14():
     """Verify Web Dashboard Server-Sent Events (SSE) stream connects and receives live MQTT events."""

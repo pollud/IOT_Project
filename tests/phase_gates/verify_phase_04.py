@@ -1,9 +1,10 @@
 """Phase Gate 04 Verification Test: Validates MQTTClient LWT (Last Will and Testament) crash publication, automatic broker reconnection, and resubscription."""
 
 import os
-import sys
 import subprocess
+import sys
 import time
+
 
 def install_requirements():
     """Install project dependencies from requirements.txt silently."""

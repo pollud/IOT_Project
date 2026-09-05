@@ -1,8 +1,8 @@
 """Phase Gate 00 Verification Test: Validates architecture documentation and expected data model definitions in docs/mqtt_topics.md and docs/phase_gates.md."""
 
 import os
-import re
 import sys
+
 
 def verify_phase_0():
     """Verify presence of documentation files and completeness of topic taxonomy and phase gate definitions."""
@@ -25,7 +25,7 @@ def verify_phase_0():
         print(f"FAIL: {phase_gates_path} does not exist")
         sys.exit(1)
 
-    with open(mqtt_topics_path, 'r') as f:
+    with open(mqtt_topics_path) as f:
         mqtt_content = f.read()
 
     missing_models = []
@@ -37,7 +37,7 @@ def verify_phase_0():
         print(f"FAIL: The following expected models were not found in mqtt_topics.md: {missing_models}")
         sys.exit(1)
 
-    with open(phase_gates_path, 'r') as f:
+    with open(phase_gates_path) as f:
         phase_gates_content = f.read()
 
     missing_phases = []
